@@ -105,12 +105,7 @@ if df is not None:
         vertical_speed=VERTICAL_SPEED
     )
 
-    # 选择优化算法
-    col7, col8 = st.columns([0.03, 0.97])  # 调整宽度比例
-    with col7:
-        st.image("data/icon/icon01.jpg", width=20)
-    with col8:
-        st.subheader("选择优化算法")
+
 
 
 
