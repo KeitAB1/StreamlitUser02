@@ -189,6 +189,7 @@ if df is not None:
                 ))
                 fig.update_layout(title="堆垛高度分布 - 面积图")
 
+
             # 显示图表
             st.plotly_chart(fig, use_container_width=True)
 
