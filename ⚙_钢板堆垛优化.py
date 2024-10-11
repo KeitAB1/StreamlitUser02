@@ -42,6 +42,7 @@ df = None
 dataset_name = None
 system_data_dir = "data/Steel_Data"
 
+
 # 导入数据集的逻辑
 if data_choice == "上传自定义数据集":
     uploaded_file = st.file_uploader("上传钢板数据集 (CSV)", type=["csv"])
