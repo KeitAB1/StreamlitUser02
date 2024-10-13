@@ -125,3 +125,4 @@ if df is not None:
 
     if st.button("开始优化"):
         run_optimization(SA_with_Batch, sa_params, df, DEFAULT_AREA_POSITIONS, output_dir_base, "sa")
+
