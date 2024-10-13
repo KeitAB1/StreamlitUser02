@@ -1,5 +1,6 @@
 import os
 from datetime import datetime
+import time
 import streamlit as st
 import pandas as pd
 from PIL import Image
@@ -9,7 +10,9 @@ import imagehash
 import shutil
 import matplotlib.pyplot as plt
 from auxiliary import Rec_utils as ru
-
+import plotly.express as px
+import plotly.graph_objects as go
+import plotly.io as pio
 
 class ImgRec:
     def __init__(self):
@@ -19,6 +22,10 @@ class ImgRec:
         self.x2,self.y2 = 160,90
         self.mask_type = 'black'
         self.isMask = False
+        self.IMAGE_SAVE_DIR = 'result/ImageRecognition_Img'
+        self.CSV_FILE_DIR = 'result/ImageRecognition_CSV'
+        self.CSV_FILE_PATH = self.CSV_FILE_DIR + '/recognized_results.csv'
+
 
     def clear_confidences(self):
         # 清空置信度列表
@@ -73,87 +80,76 @@ class ImgRec:
         self.link_threshold = st.sidebar.number_input("控制相邻字符之间的连接度阈值", min_value=0, max_value=1, value=0.8, step=0.05)
 
     # 进行OCR识别
-    def Rec_fun(self, image, file_name, IMAGE_SAVE_DIR):
+    def Rec_fun(self, image, file_name, IMAGE_SAVE_DIR, correct_text=None):
         '''
-        传入：图像，图像文件名，图像输出路径
-        返回：图像文件名，识别编码，识别完成时间，平均识别准确度
+        传入：图像，图像文件名，图像输出路径，正确编码
+        返回：图像文件名，识别编码，识别完成时间，平均识别准确度，准确率
         '''
-
-        # 转换为NumPy数组
-        image = np.array(image)
-        if self.isMask:
-            # 获取图像尺寸
-            img_height, img_width = image.shape[:2]
-            image = mask_region(image, range_constrained(self.x1,0,img_width), range_constrained(self.y1,0,img_height), \
-                                range_constrained(self.x2,0,img_width), range_constrained(self.y2,0,img_height), self.mask_type)
-
-        # image = cv2.resize(image, None, fx=10, fy=10, interpolation=cv2.INTER_CUBIC)
-        # _, image = cv2.threshold(image, 128, 255, cv2.THRESH_BINARY | cv2.THRESH_OTSU)
-        # # 检查图像维度，确保是三通道图像
-        if len(image.shape) == 2:  # 如果是灰度图像，转为RGB
-            image = cv2.cvtColor(image, cv2.COLOR_GRAY2RGB)
-
-        # # 确保传入的图像是灰度图
-        # if len(image.shape) == 3 and image.shape[2] == 3:  # 判断是否是彩色图像
-        #     image = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)  # 将彩色图像转换为灰度图像
-
-        # # 进行阈值处理
-        # _, image = cv2.threshold(image, 128, 255, cv2.THRESH_BINARY | cv2.THRESH_OTSU)
+        # 如果图像是PIL对象，转换为numpy数组
+        if isinstance(image, Image.Image):
+            image = np.array(image)
 
         # 文字识别
-        allowlist = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789()-/*'
+        allowlist = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789()-/* '
         results = self.reader.readtext(image, allowlist=allowlist, link_threshold=0.8, paragraph=False)
-        detected_text = []
-        recognition_text = ''
-        total_confidence = 0.0  # 记录总置信度
-        for (bbox, text, prob) in results:
-            recognition_text = recognition_text + text + ' '
-            detected_text.append(f"{text} (Confidence: {prob:.2f})")
-            total_confidence += prob  # 累加每次识别的置信度
 
-        # 计算平均置信度
+        # 提取识别结果
+        recognition_text = ''
+        total_confidence = 0.0
+        for (bbox, text, prob) in results:
+            recognition_text += text + ' '
+            total_confidence += prob
+
+        recognition_text = ru.process_steel_code(recognition_text)
         average_confidence = total_confidence / len(results) if results else 0.0
 
-        # 终端输出结果
-        print(f'Recognition text: {recognition_text}')
+        accuracy = -1
+        if correct_text is not None:
+            # 计算准确率
+            accuracy = calculate_accuracy(recognition_text, correct_text) if correct_text else None
+        accuracy = "{:.2%}".format(accuracy)
 
-        # 在图像上绘制方框及识别的文本
-        image_with_boxes = self.draw_boxes(image, results)
-        # 转换为PIL Image显示
-        image_with_boxes = Image.fromarray(image_with_boxes)
-        # 保存处理过的图片到指定目录
-        image_with_boxes.save(os.path.join(IMAGE_SAVE_DIR, file_name))  # 保存调整后的图像
         # 保存处理完成时间
         timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
-        return file_name, recognition_text, timestamp, average_confidence
-
+        # 返回附带准确率的结果
+        return file_name, recognition_text, average_confidence, accuracy, timestamp
 
     #文件夹图片识别
-    def process_images_from_folder(self, folder_path, progress_placeholder, IMAGE_SAVE_DIR):
+    def process_images_from_folder(self, folder_path, progress_placeholder, IMAGE_SAVE_DIR, table_data=None):
         """对文件夹中的所有图像进行OCR识别并返回结果，加入图片校正和调整过程"""
         data = []
-        #读取图片目录
-        image_files = [f for f in os.listdir(folder_path) if f.endswith(('.jpg', '.png','.bmp'))]
+        image_files = [f for f in os.listdir(folder_path) if f.endswith(('.jpg', '.png', '.bmp'))]
         total_images = len(image_files)
 
         if total_images == 0:
             return None, 0  # 如果文件夹中没有图片，返回None
 
-        #依次处理文件夹中图片
+        # 清空置信度列表
         self.clear_confidences()
+
         for idx, file_name in enumerate(image_files):
-            image_path = os.path.join(folder_path, file_name)   #路径
-            image = Image.open(image_path)  #打开图片
-            file_name,recognition_text,timestamp,average_confidence = self.Rec_fun(image, file_name, IMAGE_SAVE_DIR)
+            image_path = os.path.join(folder_path, file_name)
+            image = Image.open(image_path)
+
+            correct_text = None
+            if table_data is not None:
+                # 查找该图像对应的正确编码
+                correct_text = table_data.loc[table_data['Filename'] == file_name, 'Recognized Text'].values[0]
+
+            # 识别图像并计算准确率
+            file_name, recognition_text, average_confidence, accuracy, timestamp = self.Rec_fun(image, file_name, IMAGE_SAVE_DIR,
+                                                                                     correct_text)
             self.average_confidences.append(average_confidence)
-            data.append({"Filename": file_name, "Recognized Text": recognition_text, "Average Confidence": average_confidence,"Timestamp": timestamp})
+            data.append(
+                {"Filename": file_name, "Recognized Text": recognition_text, "Average Confidence": average_confidence,
+                 "Accuracy": accuracy, "Timestamp": timestamp})
 
             # 更新进度条
             progress_placeholder.progress((idx + 1) / total_images)
 
+        plot_confidences(self.average_confidences)
         return data, total_images
-
 
     # 上传图片识别
     def process_uploaded_images(self, uploaded_files, progress_placeholder, IMAGE_SAVE_DIR):
@@ -168,70 +164,101 @@ class ImgRec:
         self.clear_confidences()
         for idx, uploaded_file in enumerate(uploaded_files):
             image = Image.open(uploaded_file)  # 打开图片
-            file_name, recognition_text, timestamp, average_confidence = self.Rec_fun(image, uploaded_file.name, IMAGE_SAVE_DIR)
+            # 识别图像并计算准确率
+            file_name, recognition_text, average_confidence, accuracy, timestamp = self.Rec_fun(image, uploaded_file.name, IMAGE_SAVE_DIR)
             self.average_confidences.append(average_confidence)
-            data.append({"Filename": file_name, "Recognized Text": recognition_text, "Average Confidence": average_confidence,"Timestamp": timestamp})
-
+            data.append(
+                {"Filename": file_name, "Recognized Text": recognition_text, "Average Confidence": average_confidence,
+                 "Accuracy": accuracy, "Timestamp": timestamp})
             # 更新进度条
             progress_placeholder.progress((idx + 1) / total_files)
         return data  # 返回识别数据列表
 
 
     def Image_Recongnotion(self, IMAGE_SAVE_DIR, CSV_FILE_PATH):
-        st.header("Image Code Recognition with Bounded Boxes")
-        st.write("Select Image Input Method")
+        st.header("🖼️ 图像编码识别")
+        st.write("请选择图像输入方式 📥")
 
         # 选择图像输入方式
-        option = st.selectbox('Please choose', ['Images from project folder', 'Manual upload'], key="key_for_ImgRec_kinds")
+        option = st.selectbox('🔍 请选择输入方式', ['从项目文件夹中选择图像', '手动上传图像'], key="key_for_ImgRec_kinds")
 
-        if option == 'Images from project folder':
+        if option == '从项目文件夹中选择图像':
+
             base_folder_path = 'data/plate_img'
             subfolders = [f for f in os.listdir(base_folder_path) if
                           os.path.isdir(os.path.join(base_folder_path, f)) and f.startswith('Image_src')]
 
             if subfolders:
-                selected_subfolder = st.selectbox('Please select an image folder', subfolders, key="key_for_ImgRec_folder")
+                selected_subfolder = st.selectbox('📂 请选择一个图像文件夹',subfolders, key="key_for_ImgRec_folder")
                 folder_path = os.path.join(base_folder_path, selected_subfolder)
+                if os.path.exists(folder_path):
+                    # 加载table.csv
+                    table_path = os.path.join(folder_path, "table.csv")
+                    table_data = None
+                    if os.path.exists(table_path):
+                        #table_data = pd.read_csv("data/plate_img/Image_src03/table.csv")  # 确保加载正确
+                        table_data = pd.read_csv(table_path)  # 确保加载正确
+                    #显示文件夹中图片
+                    image_files = os.listdir(folder_path)
+                    if image_files:
+                        selected_image = st.selectbox("🖼️ 选择一个图像进行预览", image_files,key="key_for_preview_image")
+                        image_path = os.path.join(folder_path, selected_image)
+                        image = Image.open(image_path)
+                        # 在侧边栏中显示图片
+                        st.image(image, caption=os.path.basename(image_path), use_column_width=True)
 
-                #显示文件夹中图片
-                image_files = os.listdir(folder_path)
-                if image_files:
-                    selected_image = st.selectbox("Select an image to view", image_files,key="key_for_preview_image")
-                    image_path = os.path.join(folder_path, selected_image)
-                    image = Image.open(image_path)
-                    # 在侧边栏中显示图片
-                    st.image(image, caption=os.path.basename(image_path), use_column_width=True)
+                    if st.button('🚀 Start Recognition'):
+                        # 使用 st.empty() 创建一个占位符
+                        placeholder = st.empty()
+                        # 加载前显示信息框
+                        placeholder.info('正在识别图像中的钢板编号...')
+                        with st.spinner('加载中，请稍候...'):
+                            if os.path.exists(folder_path):
+                                progress_placeholder = st.empty()
+                                # 进行识别
+                                data, total_images = self.process_images_from_folder(folder_path, progress_placeholder,
+                                                                                IMAGE_SAVE_DIR,table_data)
 
-                if st.button('Start Recognition'):
-                    if os.path.exists(folder_path):
+                                if total_images == 0:
+                                    st.warning(f'⚠️ 文件夹 {selected_subfolder} 中未找到任何图像！')
+                                elif data:
+                                    ru.append_to_csv(data, CSV_FILE_PATH)
+                                    df = pd.DataFrame(data)
+                                    st.dataframe(df)  # 实时显示当前处理的图像结果
+                                    placeholder.success(
+                                        f'✅ 识别完成！结果已保存到 recognized_results.csv （文件夹：{selected_subfolder}）')
+                            else:
+                                placeholder.error(f'❌ 文件夹 {folder_path} 不存在！')
+
+                        Rec_history_image(self.IMAGE_SAVE_DIR)
+                        csv_display(self.CSV_FILE_PATH)
+                        plot_confidences_from_csv(self.CSV_FILE_PATH)
+                        display_chart()
+                    else:
+                        st.warning('')
+
+        elif option == '手动上传图像':
+            uploaded_files = st.file_uploader('📤 上传图像文件', type=['jpg', 'png', 'bmp'],
+                                              accept_multiple_files=True)
+            if uploaded_files:
+                if st.button('🚀 开始识别'):
+                    # 使用 st.empty() 创建一个占位符
+                    placeholder = st.empty()
+                    # 加载前显示信息框
+                    placeholder.info('正在识别图像中的钢板编号...')
+                    with st.spinner('加载中，请稍候...'):
                         progress_placeholder = st.empty()
-                        # 进行识别
-                        data, total_images = self.process_images_from_folder(folder_path, progress_placeholder,
-                                                                        IMAGE_SAVE_DIR)
-
-                        if total_images == 0:
-                            st.warning(f'No images found in folder {selected_subfolder}!')
-                        elif data:
+                        data = self.process_uploaded_images(uploaded_files, progress_placeholder, IMAGE_SAVE_DIR)
+                        if data:
                             ru.append_to_csv(data, CSV_FILE_PATH)
                             df = pd.DataFrame(data)
                             st.dataframe(df)  # 实时显示当前处理的图像结果
-                            st.success(
-                                f'Recognition complete! Results saved to recognized_results.csv (Folder: {selected_subfolder})')
-                    else:
-                        st.error(f'Folder {folder_path} does not exist!')
+                            placeholder.success('✅ 识别完成！结果已保存到 recognized_results.csv')
 
-        elif option == 'Manual upload':
-            uploaded_files = st.file_uploader('Upload image files', type=['jpg', 'png', 'bmp'],
-                                              accept_multiple_files=True)
-            if uploaded_files:
-                if st.button('Start Recognition'):
-                    progress_placeholder = st.empty()
-                    data = self.process_uploaded_images(uploaded_files, progress_placeholder, IMAGE_SAVE_DIR)
-                    if data:
-                        ru.append_to_csv(data, CSV_FILE_PATH)
-                        df = pd.DataFrame(data)
-                        st.dataframe(df)  # 实时显示当前处理的图像结果
-                        st.success('Recognition complete! Results saved to recognized_results.csv')
+                    Rec_history_image(self.IMAGE_SAVE_DIR)
+                    csv_display(self.CSV_FILE_PATH)
+                    plot_confidences_from_csv(self.CSV_FILE_PATH)
+                    display_chart()
 
         # # 显示识别结果csv表格
         # csv_display(CSV_FILE_PATH)
@@ -301,42 +328,51 @@ class ImgRec:
         final_frames_folder = 'data/video_frames/final_frames'
 
 
-        st.header("视频文本识别")
-        st.write("请选择图像输入方式")
+        st.header("🎥 视频编码识别")
+        st.write("请选择图像输入方式 📁")
 
         # 确定保存间隔
-        frame_interval = st.number_input("每隔多少帧保存一次图像", min_value=1, value=20, step=1)
+        frame_interval = st.number_input("⏳ 每隔多少帧保存一次图像", min_value=1, value=20, step=1)
 
-        option = st.selectbox('请选择输入方式', ['项目文件夹中的视频'], key="key_for_VidRec_kinds")
+        option = st.selectbox('📥 请选择输入方式', ['项目文件夹中的视频'], key="key_for_VidRec_kinds")
 
         if option == '项目文件夹中的视频':
             video_folder = 'data/plate_video'
             videos = [f for f in os.listdir(video_folder) if f.endswith(('.mp4', '.avi'))]
 
             if videos:
-                selected_video = st.selectbox('请选择视频文件', videos, key="key_for_VidRec_file")
+                selected_video = st.selectbox('🎬 请选择视频文件', videos, key="key_for_VidRec_file")
+                # 使用 st.empty() 创建一个占位符
+                placeholder = st.empty()
+                if st.button("🚀 开始识别"):
+                    # 加载前显示信息框
+                    placeholder.info('正在识别视频中的钢板编号...')
+                    with st.spinner('加载中，请稍候...'):
+                        ru.ensure_directory_exists(video_folder)
+                        video_path = os.path.join(video_folder, selected_video)
+                        self.extract_unique_frames_from_video(frame_interval ,video_path, frames_cache_folder, final_frames_folder)
 
-                if st.button("开始识别"):
-                    ru.ensure_directory_exists(video_folder)
-                    video_path = os.path.join(video_folder, selected_video)
-                    self.extract_unique_frames_from_video(frame_interval ,video_path, frames_cache_folder, final_frames_folder)
+                        progress_placeholder = st.empty()
+                        # 进行识别
+                        data, total_images = self.process_images_from_folder(final_frames_folder, progress_placeholder,
+                                                                             IMAGE_SAVE_DIR)
 
-                    progress_placeholder = st.empty()
-                    # 进行识别
-                    data, total_images = self.process_images_from_folder(final_frames_folder, progress_placeholder,
-                                                                         IMAGE_SAVE_DIR)
+                        if total_images == 0:
+                            placeholder.warning(f'⚠️ 未找到任何图像！')
+                        elif data:
+                            ru.append_to_csv(data, CSV_FILE_PATH)
+                            df = pd.DataFrame(data)
+                            st.dataframe(df)  # 实时显示当前处理的图像结果
+                            placeholder.success(
+                                f'✅ 识别完成！结果已保存到 recognized_results.csv')
 
-                    if total_images == 0:
-                        st.warning(f'No images found in folder !')
-                    elif data:
-                        ru.append_to_csv(data, CSV_FILE_PATH)
-                        df = pd.DataFrame(data)
-                        st.dataframe(df)  # 实时显示当前处理的图像结果
-                        st.success(
-                            f'Recognition complete! Results saved to recognized_results.csv ')
+                        Rec_history_image(self.IMAGE_SAVE_DIR)
+                        csv_display(self.CSV_FILE_PATH)
+                        plot_confidences_from_csv(self.CSV_FILE_PATH)
+                        display_chart()
 
             else:
-                st.write("项目文件夹中没有找到视频文件。")
+                st.write("❌ 项目文件夹中没有找到视频文件。")
 
             # # 显示识别结果csv表格
             # csv_display(CSV_FILE_PATH)
@@ -350,69 +386,202 @@ img_rec_instance = ImgRec()
 
 
 def csv_display(CSV_FILE_PATH):
-    st.write("Current Content in CSV File")
+    # 添加标题
+    st.markdown("<br><br>", unsafe_allow_html=True)
+    st.markdown("<h5 style='text-align: left; color: black;'>📄 当前 CSV 文件内容：</h5>", unsafe_allow_html=True)
 
-    # 清除识别结果(csv表格)
-    if st.button('Clear CSV File'):
-        with st.spinner('Clearing CSV file...'):
+    # 清除识别结果（CSV 表格）
+    if st.button('🗑️ 清除 CSV 文件内容'):
+        with st.spinner('正在清除 CSV 文件内容...'):
             try:
                 ru.clear_csv(CSV_FILE_PATH)
-                st.success('CSV file content cleared')
+                #time.sleep(0.5)  # 增加 0.5 秒的延迟
+                st.success('✅ CSV 文件内容已清除')
             except Exception as e:
-                st.error(f"Error clearing CSV file: {e}")
+                st.error(f"❌ 清除 CSV 文件时出错: {e}")
 
-    # 显示识别结果(csv表格)
+    # 显示识别结果（CSV 表格）
     if os.path.exists(CSV_FILE_PATH):
         if ru.is_csv_empty(CSV_FILE_PATH):
-            st.write('No recognition data available')
+            st.warning('⚠️ 没有可用的识别数据')
         else:
             try:
                 df = pd.read_csv(CSV_FILE_PATH)
                 st.dataframe(df)
             except pd.errors.EmptyDataError:
-                st.error('CSV file is empty or cannot be parsed.')
+                st.error('❌ CSV 文件为空或无法解析。')
             except pd.errors.ParserError as e:
-                st.error(f"Error parsing CSV file: {e}")
+                st.error(f"❌ 解析 CSV 文件时出错: {e}")
             except Exception as e:
-                st.error(f"An error occurred while reading the CSV file: {e}")
+                st.error(f"❌ 读取 CSV 文件时发生错误: {e}")
     else:
-        st.warning('CSV file does not exist.')
+        st.warning('⚠️ CSV 文件不存在。')
 
 def Rec_history_image(IMAGE_SAVE_DIR):
-    # 侧边栏显示历史识别图片
-    st.sidebar.title("Recognized Image History")
+    # 添加标题
+    st.markdown("<br><br>", unsafe_allow_html=True)
+    st.markdown("<h5 style='text-align: left; color: black;'>🖼️ 历史识别图片记录：</h5>", unsafe_allow_html=True)
 
-    if st.sidebar.button('Clear Image History'):
-        ru.clear_folder(IMAGE_SAVE_DIR)
-        st.sidebar.success("Image history cleared")
+    # 清除历史识别图片
+    if st.button('🗑️ 清除图片历史'):
+        with st.spinner('正在清除图片历史...'):
+            ru.clear_folder(IMAGE_SAVE_DIR)
+            time.sleep(0.5)  # 增加 0.5 秒的延迟
+            st.success("✅ 图片历史已清除")
 
+    # 显示历史识别的图片
     image_files = os.listdir(IMAGE_SAVE_DIR)
     if image_files:
-        selected_image = st.sidebar.selectbox("Select an image to view", image_files, key="key_for_history_image")
+        selected_image = st.selectbox("📂 选择一个图片进行预览", image_files, key="key_for_history_image")
         image_path = os.path.join(IMAGE_SAVE_DIR, selected_image)
         image = Image.open(image_path)
         # 在侧边栏中显示图片
-        st.sidebar.image(image, caption=os.path.basename(image_path), use_column_width=True)
-        # display_image_with_rotation(image_path)  # 使用新方法显示图片
-
-
+        st.image(image, caption=os.path.basename(image_path), use_column_width=True)
     else:
-        st.sidebar.write('No recognized image history available')
+        st.warning('⚠️ 没有可用的识别图片历史')
 
 
+
+def plot_confidences_from_csv(csv_file):
+    # 添加标题
+    st.markdown("<br><br>", unsafe_allow_html=True)
+    st.markdown("<h5 style='text-align: left; color: black;'>📊 历史汇总： </h5>", unsafe_allow_html=True)
+
+    # 检查 CSV 文件是否存在
+    if not os.path.exists(csv_file):
+        st.error("❌ 错误：CSV 文件不存在。")
+        return
+
+    if ru.is_csv_empty(csv_file):
+        st.warning("⚠️ CSV 文件为空。")
+        return
+
+    # 读取 CSV 文件
+    try:
+        data = pd.read_csv(csv_file)
+
+    except Exception as e:
+        st.error(f"❌ 读取 CSV 文件时出错: {e}")
+        return
+
+
+    # 检查是否有所需的列
+    required_columns = ['Filename', 'Average Confidence', 'Timestamp', 'Accuracy']
+    if not all(column in data.columns for column in required_columns):
+        st.error("❌ 错误：CSV 文件缺少 'Filename', 'Average Confidence' 或 'Timestamp' 列。")
+        return
+
+    # 合并 Filename 和 Timestamp 作为 x 轴标签
+    x_labels = data['Filename'] + ' ' + data['Timestamp']
+    average_confidences = data['Average Confidence'].tolist()
+    # 转换 'Accuracy' 列为小数
+    accuracy = data['Accuracy'].str.rstrip('%').astype('float') / 100
+    # 设置保存图表的目录
+    save_dir = "result/Historical_barChart"
+    ru.ensure_directory_exists(save_dir)
+
+    # 设置固定颜色
+    bar_color = 'rgb(0, 104, 201)'
+
+    # 创建柱状图
+    fig1 = go.Figure(data=[
+        go.Bar(x=x_labels, y=average_confidences, marker_color=bar_color)
+    ])
+    fig1.update_layout(
+        title="📈 每个文件及时间戳的平均置信度",
+        xaxis_title="文件名 + 时间戳",
+        yaxis_title="平均置信度",
+        hoverlabel=dict(
+            bgcolor="white",
+            font_color="black"
+        ),
+        xaxis_tickangle=-45  # 将 x 轴标签旋转以防止重叠
+    )
+
+    fig2 = go.Figure(data=[
+        go.Bar(x=x_labels, y=accuracy, marker_color=bar_color, hovertemplate='%{x}, %{y:.2%}', name='')
+    ])
+    fig2.update_layout(
+        title="📈 每个文件及时间戳的准确度率",
+        xaxis_title="文件名 + 时间戳",
+        yaxis_title="准确率",
+        hoverlabel=dict(
+            bgcolor="white",
+            font_color="black"
+        ),
+        xaxis_tickangle=-45,  # 将 x 轴标签旋转以防止重叠
+        yaxis = dict(tickformat=".2%")  # 将 y 轴刻度格式化为百分比
+    )
+
+
+    # 显示图表
+    st.plotly_chart(fig1)
+    st.plotly_chart(fig2)
+
+
+
+
+def display_chart():
+    # 设置保存图表的目录
+    save_dir = "result/Historical_barChart"
+    # 如果文件夹不存在，创建文件夹
+    ru.ensure_directory_exists(save_dir)
+
+    # 如果已经有历史图表，显示下拉框选择
+    st.markdown("<br><br>", unsafe_allow_html=True)
+    st.markdown("<h5 style='text-align: left; color: black;'>📊 历史柱状图：</h5>", unsafe_allow_html=True)
+
+    # 清除历史柱状图按钮
+    if st.button('🗑️ 清除柱状图历史'):
+        with st.spinner('正在清除柱状图历史...'):
+            ru.clear_folder(save_dir)
+            time.sleep(0.5)  # 增加 0.5 秒的延迟
+            st.success("✅ 柱状图历史已清除")
+
+    # 加载历史柱状图
+    historical_charts = ru.load_historical_charts(save_dir)
+    if historical_charts:
+        selected_chart = st.selectbox("📂 选择查看的历史柱状图", list(historical_charts.keys()))
+
+        # 根据选择的图表显示相应的图表
+        if selected_chart:
+            chart_file_path = historical_charts[selected_chart]
+            # 使用 st.components.v1.html 来显示保存的 HTML 图表
+            with open(chart_file_path, "r", encoding="utf-8") as f:
+                html_content = f.read()
+            st.components.v1.html(html_content, height=600)
+    else:
+        st.warning("⚠️ 当前没有可用的历史柱状图。")
+
+# 绘制并保存柱状图
 def plot_confidences(average_confidences):
-    # 绘制柱状图
-    st.write("OCR 识别平均置信度柱状图")
-    if average_confidences:
-        # 创建柱状图
-        fig, ax = plt.subplots()
-        ax.bar(range(len(average_confidences)), average_confidences)
-        ax.set_xlabel('OCR Call Number')
-        ax.set_ylabel('Average Confidence')
-        ax.set_title('Average Confidence per OCR Call')
-        st.pyplot(fig)
-    else:
-        st.write("没有可用的识别置信度数据")
+    # 设置保存图表的目录
+    save_dir = "result/Historical_barChart"
+    # 如果文件夹不存在，创建文件夹
+    ru.ensure_directory_exists(save_dir)
+    # 加载历史柱状图
+    historical_charts = ru.load_historical_charts(save_dir)
+
+    chart_name = f"Chart {len(historical_charts) + 1}"
+    # 设置固定颜色
+    bar_color = 'rgb(0, 104, 201)'  # 你可以自定义任何 RGB 或 HEX 颜色，如 rgb(0, 104, 201)
+
+    fig = go.Figure(data=[
+        go.Bar(x=list(range(len(average_confidences))), y=average_confidences, marker_color=bar_color)
+    ])
+    fig.update_layout(
+        title="📈 每次 OCR 调用的平均置信度",
+        xaxis_title="OCR 调用编号",
+        yaxis_title="平均置信度",
+        # 设置 hover 信息的背景颜色为白色，字体颜色为黑色
+        hoverlabel=dict(
+            bgcolor="white",
+            font_color="black"
+        )
+    )
+    # 保存柱状图到文件
+    ru.save_chart_to_file(fig, chart_name, save_dir)
+    st.plotly_chart(fig)
 
 
 # 定义遮掩函数
@@ -445,4 +614,19 @@ def range_constrained(num, minVal, maxVal):
         num = maxVal
     return num
 
+
+def calculate_accuracy(recognized_text, correct_text):
+    # 去掉识别文本和正确文本中的空格用于匹配
+    recognized_text = recognized_text.replace(" ", "")
+    correct_text = correct_text.replace(" ", "").replace("\n", "")
+
+    # 获取最小的长度，防止索引越界
+    min_len = min(len(recognized_text), len(correct_text))
+
+    # 统计匹配的字符个数
+    match_count = sum(1 for i in range(min_len) if recognized_text[i] == correct_text[i])
+
+    # 准确率 = 匹配字符数 / 正确编码的总长度
+    accuracy = match_count / len(correct_text) if len(correct_text) > 0 else 0
+    return accuracy
 

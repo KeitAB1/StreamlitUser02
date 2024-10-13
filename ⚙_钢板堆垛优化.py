@@ -32,16 +32,17 @@ with col1:
 with col2:
     st.subheader("数据导入")
 
-col3, col4 = st.columns([0.01, 0.99])
+col3, col4, col11 = st.columns([0.01, 0.54, 0.55])
 with col3:
     st.image("data/icon/icon02.jpg", width=20)
 with col4:
     data_choice = st.selectbox("选择数据集", ["使用系统数据集", "上传自定义数据集"])
+with col11:
+    st.image("data/icon/img.png", width=20)
 
 df = None
 dataset_name = None
 system_data_dir = "data/Steel_Data"
-
 
 # 导入数据集的逻辑
 if data_choice == "上传自定义数据集":
@@ -54,9 +55,11 @@ if data_choice == "上传自定义数据集":
     else:
         st.warning("请上传数据集以继续。")
 elif data_choice == "使用系统数据集":
-    col5, col6 = st.columns([0.01, 0.99])
+    col5, col6, col12 = st.columns([0.01, 0.54, 0.55])
     with col5:
         st.image("data/icon/icon02.jpg", width=20)
+    with col12:
+        st.image("data/icon/img.png", width=20)
     with col6:
         available_datasets = [f.replace('.csv', '') for f in os.listdir(system_data_dir) if f.endswith('.csv')]
         selected_dataset = st.selectbox("选择系统数据集", [""] + available_datasets)
@@ -66,8 +69,7 @@ elif data_choice == "使用系统数据集":
             df = pd.read_csv(system_dataset_path)
             st.write(f"已选择系统数据集：{selected_dataset}")
             st.write(df.head())
-        else:
-            st.warning("请选择系统数据集")
+
 
 # 优化参数配置
 initial_temperature = 1000.0
@@ -105,11 +107,6 @@ if df is not None:
         vertical_speed=VERTICAL_SPEED
     )
 
-
-
-
-
-
     sa_params = {
         'initial_temperature': initial_temperature,
         'cooling_rate': cooling_rate,
@@ -127,5 +124,4 @@ if df is not None:
     }
 
     if st.button("开始优化"):
-        st.info("优化进行中，请稍候...")
         run_optimization(SA_with_Batch, sa_params, df, DEFAULT_AREA_POSITIONS, output_dir_base, "sa")
