@@ -5,6 +5,7 @@ import numpy as np
 import plotly.graph_objects as go
 import plotly.express as px
 from datetime import datetime
+import base64
 
 # 从 constants 文件中引入常量
 from constants import (
@@ -174,7 +175,8 @@ def generate_stacking_distribution_statistics(df, area_positions, output_dir_bas
     with col1:
         st.image("data/icon/icon01.jpg", width=20)
     with col2:
-        st.write("#### 垛位分布统计表")
+        # 使用 display_icon_with_header 函数替换现有的图标和标题显示逻辑
+        display_icon_with_header("data/icon/icon01.jpg", "垛位分布统计表", font_size="24px", icon_size="20px")
     st.dataframe(result_df)
 
     col3, col4, col = st.columns([0.01, 0.44, 0.55])
@@ -253,7 +255,8 @@ def add_download_button(file_path, algorithm_name):
     with col5:
         st.image("data/icon/icon01.jpg", width=20)
     with col6:
-        st.write("#### 堆垛分布详情")
+        # 使用 display_icon_with_header 函数替换现有的图标和标题显示逻辑
+        display_icon_with_header("data/icon/icon01.jpg", "堆垛分布详情", font_size="24px", icon_size="20px")
     with open(file_path, 'rb') as file:
         st.download_button(
             label=f"Download Result",
@@ -264,15 +267,6 @@ def add_download_button(file_path, algorithm_name):
     df_plates_with_batch = pd.read_csv(file_path)
     st.dataframe(df_plates_with_batch.head(5))
 
-
-
-
-import streamlit as st
-import pandas as pd
-import os
-import numpy as np
-import plotly.graph_objects as go
-from datetime import datetime
 
 # 生成单个库区的堆垛俯视热力图
 def generate_single_area_heatmap(df, area, positions, zmin, zmax):
@@ -399,5 +393,31 @@ def run_optimization(optimizer_class, params, df, area_positions, output_dir_bas
     generate_stacking_heatmaps(df, area_positions)
 
     add_download_button(output_file_plates_with_batch, algorithm_name)
+
+
+
+
+def image_to_base64(image_path):
+    with open(image_path, "rb") as img_file:
+        return base64.b64encode(img_file.read()).decode()
+
+# 自定义一个函数来创建带有图标和标题的组合,并自定义标题大小(默认24px)
+def display_icon_with_header(icon_path, header_text, font_size="24px", icon_size="20px"):
+    if os.path.exists(icon_path):
+        # 将图片转换为 Base64 格式
+        img_base64 = image_to_base64(icon_path)
+        # 使用 HTML 和 CSS 实现图标和标题的对齐
+        st.markdown(
+            f"""
+            <div style="display: flex; align-items: center;">
+                <img src="data:image/png;base64,{img_base64}" width="{icon_size}" style="margin-right: 10px;">
+                <h3 style="margin: 0; font-size: {font_size};">{header_text}</h3>
+            </div>
+            """, unsafe_allow_html=True
+        )
+    else:
+        st.markdown(f"<h3 style='font-size: {font_size};'>{header_text}</h3>", unsafe_allow_html=True)
+
+
 
 

@@ -6,7 +6,7 @@ import plotly.graph_objects as go
 import plotly.express as px
 from optimization_objectives import SteelPlateStackingObjectives as OptimizationObjectives
 from optimizers.sa_optimizer import SA_with_Batch
-from utils import save_convergence_history, add_download_button, run_optimization
+from utils import save_convergence_history, add_download_button, run_optimization, display_icon_with_header
 
 # 从 constants 文件中引入常量
 from constants import (
@@ -24,16 +24,16 @@ st.set_page_config(page_title="智能钢板堆垛系统", page_icon="⚙", layou
 output_dir_base = "result/"
 os.makedirs(output_dir_base, exist_ok=True)
 
+
 st.title("⚙ 智能钢板堆垛系统")
 
-# 数据集导入
-col1, col2 = st.columns([0.03, 0.97])  # 调整宽度比例
-with col1:
-    st.image("data/icon/icon01.jpg", width=20)
-with col2:
-    st.subheader("数据导入")
 
-col3, col4, col11 = st.columns([0.01, 0.54, 0.55])
+# 使用 display_icon_with_header 函数替换现有的图标和标题显示逻辑
+display_icon_with_header("data/icon/icon01.jpg", "数据导入", font_size="24px", icon_size="20px")
+
+
+# 使用 display_icon_with_header 函数替换部分的展示
+col3, col4, col11 = st.columns([0.01, 0.45, 0.55])
 with col3:
     st.image("data/icon/icon02.jpg", width=20)
 with col4:
@@ -68,8 +68,6 @@ elif data_choice == "使用系统数据集":
             dataset_name = selected_dataset
             system_dataset_path = os.path.join(system_data_dir, f"{selected_dataset}.csv")
             df = pd.read_csv(system_dataset_path)
-
-
 
 # 优化参数配置
 initial_temperature = 1000.0
@@ -125,4 +123,3 @@ if df is not None:
 
     if st.button("Start Work"):
         run_optimization(SA_with_Batch, sa_params, df, DEFAULT_AREA_POSITIONS, output_dir_base, "sa")
-
