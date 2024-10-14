@@ -2,20 +2,15 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import os
-import plotly.graph_objects as go
-import plotly.express as px
 from optimization_objectives import SteelPlateStackingObjectives as OptimizationObjectives
-# 从 PSOSA 优化器引入 PSO_SA_Optimizer
-from optimizers.psosa_optimizer import PSO_SA_Optimizer
-from utils import save_convergence_history, add_download_button, run_optimization, display_icon_with_header
+from optimizers.psosa_optimizer import PSO_SA_Optimizer  # 添加 PSOSA 组合优化算法
+from utils import run_optimization, display_icon_with_header
+from optimizer_params import SA_PARAMS, PSO_PARAMS  # 引入 PSO 和 SA 参数
 
 # 从 constants 文件中引入常量
 from constants import (
-    OUTPUT_DIR, CONVERGENCE_DIR, DATA_DIR, TEST_DATA_PATH,
-    AREA_POSITIONS_DIMENSIONS,
-    DEFAULT_AREA_POSITIONS, DEFAULT_STACK_DIMENSIONS,
-    HORIZONTAL_SPEED, VERTICAL_SPEED, STACK_FLIP_TIME_PER_PLATE,
-    INBOUND_POINT, OUTBOUND_POINT, Dki
+    DEFAULT_AREA_POSITIONS, Dki, INBOUND_POINT, OUTBOUND_POINT,
+    HORIZONTAL_SPEED, VERTICAL_SPEED
 )
 
 # Streamlit 页面配置
@@ -30,12 +25,12 @@ st.title("⚙ 智能钢板堆垛系统")
 # 使用 display_icon_with_header 函数替换现有的图标和标题显示逻辑
 display_icon_with_header("data/icon/icon01.jpg", "数据导入", font_size="24px", icon_size="20px")
 
-# 使用 display_icon_with_header 函数替换部分的展示
+# 数据来源选择框
 col3, col4, col11 = st.columns([0.01, 0.45, 0.55])
 with col3:
     st.image("data/icon/icon02.jpg", width=20)
 with col4:
-    data_choice = st.selectbox("选择数据集", ["使用系统数据集", "上传自定义数据集"])
+    data_choice = st.selectbox("数据来源", ["上传自定义数据集", "使用测试数据集"])
 with col11:
     st.image("data/icon/img.png", width=20)
 
@@ -43,7 +38,7 @@ df = None
 dataset_name = None
 system_data_dir = "data/Steel_Data"
 
-# 导入数据集的逻辑
+# 数据集导入逻辑
 if data_choice == "上传自定义数据集":
     uploaded_file = st.file_uploader("上传钢板数据集 (CSV)", type=["csv"])
     if uploaded_file:
@@ -51,9 +46,8 @@ if data_choice == "上传自定义数据集":
         df = pd.read_csv(uploaded_file)
         st.write("已上传的数据集：")
         st.write(df.head())
-    else:
-        st.warning("请上传数据集以继续。")
-elif data_choice == "使用系统数据集":
+
+elif data_choice == "使用测试数据集":
     col5, col6, col12 = st.columns([0.01, 0.44, 0.55])
     with col5:
         st.image("data/icon/icon02.jpg", width=20)
@@ -61,12 +55,11 @@ elif data_choice == "使用系统数据集":
         st.image("data/icon/img.png", width=20)
     with col6:
         available_datasets = [f.replace('.csv', '') for f in os.listdir(system_data_dir) if f.endswith('.csv')]
-        selected_dataset = st.selectbox("系统数据集", [""] + available_datasets)
+        selected_dataset = st.selectbox("测试数据集", [""] + available_datasets)
         if selected_dataset:
             dataset_name = selected_dataset
             system_dataset_path = os.path.join(system_data_dir, f"{selected_dataset}.csv")
             df = pd.read_csv(system_dataset_path)
-
 
 # 添加勾选按钮和 Start Work 按钮放在一行
 col7, col8 = st.columns([0.15, 0.85])
@@ -75,16 +68,6 @@ with col7:
 with col8:
     start_work = st.button("Start Work")
 
-
-# 优化参数配置
-initial_temperature = 1000.0
-cooling_rate = 0.9
-min_temperature = 0.1
-max_iterations_sa = 2
-num_particles = 30  # 粒子群大小
-max_iter_pso = 2  # PSO最大迭代次数
-w, c1, c2 = 0.5, 1.5, 1.5  # PSO 参数
-lambda_1, lambda_2, lambda_3, lambda_4 = 1.0, 1.0, 1.0, 1.0
 use_adaptive = True
 
 # 优化分析
@@ -115,30 +98,35 @@ if df is not None:
         vertical_speed=VERTICAL_SPEED
     )
 
-    # PSOSA 参数
-    psosa_params = {
-        'num_particles': num_particles,
-        'num_positions': num_positions,
-        'w': w,
-        'c1': c1,
-        'c2': c2,
-        'max_iter_pso': max_iter_pso,
-        'initial_temperature': initial_temperature,
-        'cooling_rate': cooling_rate,
-        'min_temperature': min_temperature,
-        'max_iterations_sa': max_iterations_sa,
-        'lambda_1': lambda_1,
-        'lambda_2': lambda_2,
-        'lambda_3': lambda_3,
-        'lambda_4': lambda_4,
-        'num_positions': num_positions,  # 库区/垛位数量
-        'num_plates': num_plates,  # 钢板数量，添加此行
+    # 默认混合优化参数
+    hybrid_params = {
+        'num_particles': PSO_PARAMS['num_particles'],
+        'num_positions': len(Dki),
+        'w': PSO_PARAMS['inertia_weight'],
+        'c1': PSO_PARAMS['cognitive_component'],
+        'c2': PSO_PARAMS['social_component'],
+        'max_iter_pso': PSO_PARAMS['max_iterations'],
+        'initial_temperature': SA_PARAMS['initial_temperature'],
+        'cooling_rate': SA_PARAMS['cooling_rate'],
+        'min_temperature': SA_PARAMS['min_temperature'],
+        'max_iterations_sa': SA_PARAMS['max_iterations'],
+        'lambda_1': SA_PARAMS['lambda_1'],
+        'lambda_2': SA_PARAMS['lambda_2'],
+        'lambda_3': SA_PARAMS['lambda_3'],
+        'lambda_4': SA_PARAMS['lambda_4'],
         'dataset_name': dataset_name,
         'objectives': objectives,
-        'use_adaptive': use_adaptive
+        'use_adaptive': True  # 自适应模拟退火
     }
 
     if start_work:
-        run_optimization(PSO_SA_Optimizer, psosa_params, df, DEFAULT_AREA_POSITIONS, output_dir_base, "psosa")
+        # 运行混合优化器
+        run_optimization(PSO_SA_Optimizer, hybrid_params, df, DEFAULT_AREA_POSITIONS, output_dir_base, "psosa")
+
+
+
+
+
+
 
 

@@ -1,205 +1,237 @@
 import streamlit as st
-import pandas as pd
 import numpy as np
-import matplotlib.pyplot as plt
+import pandas as pd
+import time
 import os
-
-from optimization_functions import minimize_stack_movements_and_turnover, minimize_outbound_energy_time_with_batch, \
-    maximize_inventory_balance_v2, maximize_space_utilization_v3
-
-
-
-
-
-# 全局变量用于存储结果
-heights = None
-
-# 创建用于保存图像的目录
-output_dir = "stack_distribution_plots/final_stack_distribution"
-convergence_dir = "result/ConvergenceData"
-data_dir = "test/steel_data"  # 统一数据集目录
-os.makedirs(output_dir, exist_ok=True)
-os.makedirs(convergence_dir, exist_ok=True)
-os.makedirs(data_dir, exist_ok=True)
-
-# 定义保存路径为 test_data.csv
-test_data_path = os.path.join(data_dir, "test_data.csv")
-
-
-# 初始化 df 为 None
-df = None
-
-# 优先检查 test_data.csv 是否存在
-if os.path.exists(test_data_path):
-    # 直接读取已存在的 test_data.csv
-    df = pd.read_csv(test_data_path)
+import logging
+import plotly.graph_objects as go
+from plotly.subplots import make_subplots
+import streamlit as st
+from utils import save_convergence_history, save_performance_metrics
+from optimization_utils import evaluate_parallel, evaluate_with_cache
+from optimization_utils import apply_adaptive_sa
 
 
 
 
-# 如果 df 已经加载，进行堆垛优化分析
-if df is not None:
-    # 参数配置（假设数据集结构一致）
-    plates = df[['Length', 'Width', 'Thickness', 'Material_Code', 'Batch', 'Entry Time', 'Delivery Time']].values
-    plate_areas = plates[:, 0] * plates[:, 1]
-    num_plates = len(plates)
-    batches = df['Batch'].values
+class GA_with_Batch:
+    cache = {}  # 适应度缓存，避免重复计算
 
-    # 库区布局和尺寸
-    area_positions = {
-        0: [(0, 0), (0, 1), (0, 2), (1, 0), (1, 1), (1, 2), (2, 0), (2, 1)],
-        1: [(0, 0), (0, 1), (0, 2), (1, 0), (1, 1), (1, 2), (2, 0), (2, 1)],
-        2: [(0, 0), (0, 1), (1, 0), (1, 1), (2, 0), (2, 1)],
-        3: [(0, 0), (0, 1), (1, 0), (1, 1)],
-        4: [(0, 0), (0, 1), (1, 0), (1, 1)],
-        5: [(0, 0), (0, 1), (1, 0), (1, 1)]
-    }
+    def __init__(self, population_size, mutation_rate, crossover_rate, generations, lambda_1, lambda_2, lambda_3,
+                 lambda_4, num_positions, dataset_name, objectives, plates, delivery_times, batches, use_adaptive):
+        self.population_size = population_size
+        self.mutation_rate = mutation_rate
+        self.crossover_rate = crossover_rate
+        self.generations = generations
+        self.lambda_1 = lambda_1
+        self.lambda_2 = lambda_2
+        self.lambda_3 = lambda_3
+        self.lambda_4 = lambda_4
+        self.num_positions = num_positions
+        self.population = [np.random.randint(0, num_positions, size=len(plates)) for _ in range(population_size)]
+        self.best_individual = None
+        self.best_score = np.inf
+        self.worst_score = -np.inf
+        self.best_improvement = np.inf
+        self.prev_best_score = np.inf
+        self.total_improvement = 0
+        self.convergence_data = []
+        self.stable_iterations = 0
+        self.dataset_name = dataset_name
+        self.start_time = None  # 用于记录优化过程的时间
+        self.objectives = objectives  # OptimizationObjectives 实例
+        self.plates = plates
+        self.delivery_times = delivery_times
+        self.batches = batches
+        self.heights = np.zeros(num_positions)
+        self.use_adaptive = use_adaptive
+        self.adaptive_param_data = []
 
-    # 库区垛位尺寸
-    stack_dimensions = {
-        0: [(6000, 3000), (9000, 3000), (9000, 3000), (6000, 3000), (9000, 3000), (9000, 3000), (9000, 4000),
-            (15000, 4000)],
-        1: [(6000, 3000), (9000, 3000), (9000, 3000), (6000, 3000), (9000, 3000), (9000, 3000), (15000, 4000),
-            (9000, 4000)],
-        2: [(12000, 3000), (12000, 3000), (12000, 3000), (12000, 3000), (12000, 4000), (12000, 4000)],
-        3: [(9000, 5000), (15000, 5000), (9000, 5000), (15000, 5000)],
-        4: [(18000, 5000), (6000, 5000), (18000, 5000), (6000, 5000)],
-        5: [(12000, 5000), (12000, 5000), (12000, 5000), (12000, 5000)]
-    }
+        # Streamlit 占位符
+        self.convergence_plot_placeholder = st.empty()
+        self.adaptive_param_plot_placeholder = st.empty()
 
-    # 每个库区最大堆垛容量，垛位限制高为3000mm
-    Dki = np.array([
-        np.sum([dim[0] * dim[1] * 3000 for dim in stack_dimensions[0]]),  # 库区 1
-        np.sum([dim[0] * dim[1] * 3000 for dim in stack_dimensions[1]]),  # 库区 2
-        np.sum([dim[0] * dim[1] * 3000 for dim in stack_dimensions[2]]),  # 库区 3
-        np.sum([dim[0] * dim[1] * 3000 for dim in stack_dimensions[3]]),  # 库区 4
-        np.sum([dim[0] * dim[1] * 3000 for dim in stack_dimensions[4]]),  # 库区 5
-        np.sum([dim[0] * dim[1] * 3000 for dim in stack_dimensions[5]])  # 库区 6
-    ])
+    def fitness(self, individual):
+        individual_tuple = tuple(individual)
+        # 使用缓存机制避免重复计算
+        return evaluate_with_cache(self.cache, individual_tuple, self._evaluate_fitness)
 
-    # 初始化每个库区中的垛位高度
-    heights = np.zeros(len(Dki))
+    def _evaluate_fitness(self, individual):
+        # 计算适应度得分
+        combined_movement_turnover_penalty = self.objectives.minimize_stack_movements_and_turnover(individual)
+        energy_time_penalty = self.objectives.minimize_outbound_energy_time_with_batch(individual)
+        balance_penalty = self.objectives.maximize_inventory_balance_v2(individual)
+        space_utilization = self.objectives.maximize_space_utilization_v3(individual)
 
-    # 电磁吊的速度，单位：米/分钟 -> 毫米/秒
-    horizontal_speed = 72 * 1000 / 60  # 水平速度：72m/min，转换为 mm/s
-    vertical_speed = 15 * 1000 / 60  # 垂直速度：15m/min，转换为 mm/s
-    stack_flip_time_per_plate = 10  # 每次翻垛需要10秒
+        score = (self.lambda_1 * combined_movement_turnover_penalty +
+                 self.lambda_2 * energy_time_penalty +
+                 self.lambda_3 * balance_penalty -
+                 self.lambda_4 * space_utilization)
 
-    # 传送带位置参数
-    conveyor_position_x = 2000  # 距离库区1-3的传送带水平距离
-    conveyor_position_y = 14000  # 距离库区4-6的传送带水平距离
+        return score
 
-    #  将交货时间从字符串转换为数值
-    df['Delivery Time'] = pd.to_datetime(df['Delivery Time'])
-    df['Entry Time'] = pd.to_datetime(df['Entry Time'])
-    delivery_times = (df['Delivery Time'] - df['Entry Time']).dt.days.values
+    def select(self):
+        """
+        选择个体：使用并行计算评估适应度
+        """
+        fitness_scores = evaluate_parallel(self.population, self.fitness)
+        fitness_scores = np.array(fitness_scores)
+        probabilities = np.exp(-fitness_scores / np.sum(fitness_scores))
+        probabilities /= probabilities.sum()
+        selected_indices = np.random.choice(len(self.population), size=self.population_size, p=probabilities)
+        return [self.population[i] for i in selected_indices]
 
-    # 动态显示收敛曲线的占位符
-    convergence_plot_placeholder = st.empty()
+    def crossover(self, parent1, parent2):
+        if np.random.rand() < self.crossover_rate:
+            crossover_point = np.random.randint(1, len(self.plates))
+            child1 = np.concatenate([parent1[:crossover_point], parent2[crossover_point:]])
+            child2 = np.concatenate([parent2[:crossover_point], parent1[crossover_point:]])
+            return child1, child2
+        return parent1, parent2
 
-    # 动态显示收敛曲线的占位符
-    convergence_plot_placeholder = st.empty()
+    def mutate(self, individual):
+        for i in range(len(individual)):
+            if np.random.rand() < self.mutation_rate:
+                individual[i] = np.random.randint(0, self.num_positions)
+        return individual
 
-    class GA_with_Batch:
-        def __init__(self, population_size, mutation_rate, crossover_rate, generations, lambda_1, lambda_2, lambda_3,
-                     lambda_4, num_positions):
-            self.population_size = population_size
-            self.mutation_rate = mutation_rate
-            self.crossover_rate = crossover_rate
-            self.generations = generations
-            self.lambda_1 = lambda_1
-            self.lambda_2 = lambda_2
-            self.lambda_3 = lambda_3
-            self.lambda_4 = lambda_4
-            self.num_positions = num_positions
-            self.population = [np.random.randint(0, num_positions, size=num_plates) for _ in range(population_size)]
-            self.best_individual = None
-            self.best_score = np.inf
-            self.convergence_data = []
+    def optimize(self):
+        st.info("GA Optimization started...")  # 提供优化开始信息
+        with st.spinner("Running GA Optimization..."):  # 提供运行时加载提示
+            self.start_time = time.time()  # 记录开始时间
 
-        def fitness(self, individual):
-            global heights
-            temp_heights = heights.copy()
-
-            combined_movement_turnover_penalty = minimize_stack_movements_and_turnover(
-                individual, temp_heights, plates, delivery_times, batches)
-            energy_time_penalty = minimize_outbound_energy_time_with_batch(individual, plates, temp_heights)
-            balance_penalty = maximize_inventory_balance_v2(individual, plates)
-            space_utilization = maximize_space_utilization_v3(individual, plates, Dki)
-
-            score = (self.lambda_1 * combined_movement_turnover_penalty +
-                     self.lambda_2 * energy_time_penalty +
-                     self.lambda_3 * balance_penalty -
-                     self.lambda_4 * space_utilization)
-
-            return score
-
-        def select(self):
-            fitness_scores = np.array([self.fitness(ind) for ind in self.population])
-            probabilities = np.exp(-fitness_scores / np.sum(fitness_scores))
-            probabilities /= probabilities.sum()  # Normalize to get probabilities
-            selected_indices = np.random.choice(len(self.population), size=self.population_size, p=probabilities)
-            return [self.population[i] for i in selected_indices]
-
-        def crossover(self, parent1, parent2):
-            if np.random.rand() < self.crossover_rate:
-                crossover_point = np.random.randint(1, num_plates)
-                child1 = np.concatenate([parent1[:crossover_point], parent2[crossover_point:]])
-                child2 = np.concatenate([parent2[:crossover_point], parent1[crossover_point:]])
-                return child1, child2
-            return parent1, parent2
-
-        def mutate(self, individual):
-            for i in range(len(individual)):
-                if np.random.rand() < self.mutation_rate:
-                    individual[i] = np.random.randint(0, self.num_positions)
-            return individual
-
-        def optimize(self):
             for generation in range(self.generations):
                 new_population = []
                 selected_population = self.select()
-                for i in range(0, self.population_size, 2):
-                    parent1, parent2 = selected_population[i], selected_population[min(i + 1, self.population_size - 1)]
-                    child1, child2 = self.crossover(parent1, parent2)
-                    new_population.append(self.mutate(child1))
-                    new_population.append(self.mutate(child2))
+
+                # 交叉和变异操作使用多线程并行处理
+                with ThreadPoolExecutor() as executor:
+                    futures = []
+                    for i in range(0, self.population_size, 2):
+                        parent1 = selected_population[i]
+                        parent2 = selected_population[min(i + 1, self.population_size - 1)]
+                        futures.append(executor.submit(self.crossover, parent1, parent2))
+
+                    for future in futures:
+                        child1, child2 = future.result()
+                        new_population.append(self.mutate(child1))
+                        new_population.append(self.mutate(child2))
 
                 self.population = new_population
                 best_individual_gen = min(self.population, key=self.fitness)
                 best_score_gen = self.fitness(best_individual_gen)
 
+                self.worst_score = max(self.worst_score, best_score_gen)
+                self.best_improvement = min(self.best_improvement, abs(self.prev_best_score - best_score_gen))
+                self.total_improvement += abs(self.prev_best_score - best_score_gen)
+                self.prev_best_score = best_score_gen
+
                 if best_score_gen < self.best_score:
                     self.best_score = best_score_gen
                     self.best_individual = best_individual_gen.copy()
+                    self.stable_iterations = 0  # 重置稳定迭代次数
+                else:
+                    self.stable_iterations += 1  # 计数稳定迭代次数
+
+                # 记录并更新自适应参数
+                if self.use_adaptive:
+                    self.mutation_rate, self.crossover_rate = apply_adaptive_ga(
+                        self.mutation_rate, self.crossover_rate, best_score_gen, self.best_score, self.use_adaptive
+                    )
+                    self.record_adaptive_params()
+
+                    # 每代更新自适应参数调节图
+                    self.update_adaptive_param_plot()
 
                 self.convergence_data.append([generation + 1, self.best_score])
                 self.update_convergence_plot(generation + 1)
 
                 print(f'Generation {generation + 1}/{self.generations}, Best Score: {self.best_score}')
 
-            self.update_final_heights()
+            time_elapsed = time.time() - self.start_time  # 计算总耗时
+            iterations = len(self.convergence_data)
+            convergence_rate_value = (self.convergence_data[-1][1] - self.convergence_data[0][1]) / iterations
+            average_improvement = self.total_improvement / iterations if iterations > 0 else np.inf
+            relative_error_value = abs(self.best_score) / (abs(self.best_score) + 1e-6)
 
-        def update_final_heights(self):
-            global heights
-            heights = np.zeros(len(Dki))
-            for plate_idx, position in enumerate(self.best_individual):
-                area = position
-                heights[area] += plates[plate_idx, 2]
+            metrics = {
+                'Best Score': self.best_score,
+                'Worst Score': self.worst_score,
+                'Best Improvement': self.best_improvement,
+                'Average Improvement': average_improvement,
+                'Iterations': iterations,
+                'Time (s)': time_elapsed,
+                'Convergence Rate': convergence_rate_value,
+                'Relative Error': relative_error_value,
+                'Convergence Speed (Stable Iterations)': self.stable_iterations
+            }
 
-        def update_convergence_plot(self, current_generation):
-            iteration_data = [x[0] for x in self.convergence_data]
-            score_data = [x[1] for x in self.convergence_data]
+            self.save_metrics(metrics)
 
-            plt.figure(figsize=(8, 4))
-            plt.plot(iteration_data, score_data, '-o', color='blue', label='Best Score')
-            plt.xlabel('Generations')
-            plt.ylabel('Best Score')
-            plt.title(f'Convergence Curve - Generation {current_generation}, Best Score {self.best_score}')
-            plt.legend()
+            # 优化结束后，保存历史收敛数据
+            history_data_dir = os.path.join("result/History_ConvergenceData", self.dataset_name, "GA")
+            save_convergence_history(self.convergence_data, "GA", self.dataset_name, history_data_dir)
 
-            convergence_plot_placeholder.pyplot(plt)
+    def record_adaptive_params(self):
+        self.adaptive_param_data.append(
+            {'mutation_rate': self.mutation_rate, 'crossover_rate': self.crossover_rate})
 
-            convergence_data_df = pd.DataFrame(self.convergence_data, columns=['Generation', 'Best Score'])
-            convergence_data_path = os.path.join(convergence_dir, 'convergence_data_ga.csv')
-            convergence_data_df.to_csv(convergence_data_path, index=False)
+    def update_convergence_plot(self, current_generation):
+        iteration_data = [x[0] for x in self.convergence_data]
+        score_data = [x[1] for x in self.convergence_data]
+
+        # 创建收敛曲线
+        fig = make_subplots(specs=[[{"secondary_y": True}]])
+        fig.add_trace(
+            go.Scatter(x=iteration_data, y=score_data, mode='lines+markers', name='Best Score'),
+            secondary_y=False
+        )
+
+        # 设置图表布局
+        fig.update_layout(
+            title=f'Convergence Curve - Generation {current_generation}, Best Score {self.best_score}',
+            xaxis_title='Generations',
+            legend=dict(x=0.75, y=1)
+        )
+
+        fig.update_yaxes(title_text="Best Score", secondary_y=False)
+
+        # 使用 Streamlit 展示 Plotly 图表
+        self.convergence_plot_placeholder.plotly_chart(fig, use_container_width=True)
+
+        # 保存收敛图
+        save_convergence_plot(self.convergence_data, current_generation, self.best_score, "GA", self.dataset_name)
+
+    def update_adaptive_param_plot(self):
+        iteration_data = list(range(1, len(self.adaptive_param_data) + 1))
+        mutation_rate_data = [x['mutation_rate'] for x in self.adaptive_param_data]
+        crossover_rate_data = [x['crossover_rate'] for x in self.adaptive_param_data]
+
+        # 创建参数变化曲线
+        fig = go.Figure()
+        fig.add_trace(
+            go.Scatter(x=iteration_data, y=mutation_rate_data, mode='lines+markers', name='Mutation Rate')
+        )
+        fig.add_trace(
+            go.Scatter(x=iteration_data, y=crossover_rate_data, mode='lines+markers', name='Crossover Rate')
+        )
+
+        # 设置图表布局
+        fig.update_layout(
+            title="Adaptive Parameter Changes",
+            xaxis_title="Generations",
+            yaxis_title="Parameter Values",
+            legend=dict(x=0.75, y=1)
+        )
+
+        # 使用 Streamlit 展示 Plotly 图表
+        self.adaptive_param_plot_placeholder.plotly_chart(fig, use_container_width=True)
+
+    def save_metrics(self, metrics):
+        dataset_folder = f"result/comparison_performance/{self.dataset_name.split('.')[0]}"
+        os.makedirs(dataset_folder, exist_ok=True)
+        file_name = f"comparison_performance_ga.csv"
+        file_path = os.path.join(dataset_folder, file_name)
+
+        metrics_df = pd.DataFrame([metrics])
+        metrics_df.to_csv(file_path, index=False)

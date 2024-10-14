@@ -1,2 +1,2 @@
 Best Score,Worst Score,Best Improvement,Average Improvement,Iterations,Time (s),Convergence Rate,Relative Error,Convergence Speed (Stable Iterations)
-1.7251097039862085e+18,7.153725831713436e+20,inf,inf,100,733.8786773681641,-3.2754723957475308e+16,1.0,23
+4.048756375583558e+18,7.983756940963557e+20,inf,inf,100,1390.3201563358307,0.0,1.0,99

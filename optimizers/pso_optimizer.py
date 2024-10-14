@@ -1,222 +1,187 @@
 import streamlit as st
-import pandas as pd
 import numpy as np
-import matplotlib.pyplot as plt
+import pandas as pd
+import time
 import os
-
-from optimization_functions import minimize_stack_movements_and_turnover, minimize_outbound_energy_time_with_batch, \
-    maximize_inventory_balance_v2, maximize_space_utilization_v3
-
-
-
-
-
-# 全局变量用于存储结果
-heights = None
-
-# 创建用于保存图像的目录
-output_dir = "stack_distribution_plots/final_stack_distribution"
-convergence_dir = "result/ConvergenceData"
-data_dir = "test/steel_data"  # 统一数据集目录
-os.makedirs(output_dir, exist_ok=True)
-os.makedirs(convergence_dir, exist_ok=True)
-os.makedirs(data_dir, exist_ok=True)
-
-# 定义保存路径为 test_data.csv
-test_data_path = os.path.join(data_dir, "test_data.csv")
-
-
-# 初始化 df 为 None
-df = None
-
-# 优先检查 test_data.csv 是否存在
-if os.path.exists(test_data_path):
-    # 直接读取已存在的 test_data.csv
-    df = pd.read_csv(test_data_path)
+import logging
+import plotly.graph_objects as go
+from plotly.subplots import make_subplots
+import streamlit as st
+from utils import save_convergence_history, save_performance_metrics
+from optimization_utils import evaluate_parallel, evaluate_with_cache
+from optimization_utils import apply_adaptive_sa
 
 
 
+# PSO 的粒子类定义
+class Particle:
+    def __init__(self, num_positions):
+        self.position = np.random.randint(0, num_positions, size=num_plates)  # 随机初始化位置
+        self.velocity = np.zeros(num_plates)
+        self.best_position = self.position.copy()
+        self.best_score = np.inf
 
-# 如果 df 已经加载，进行堆垛优化分析
-if df is not None:
-    # 参数配置（假设数据集结构一致）
-    plates = df[['Length', 'Width', 'Thickness', 'Material_Code', 'Batch', 'Entry Time', 'Delivery Time']].values
-    plate_areas = plates[:, 0] * plates[:, 1]
-    num_plates = len(plates)
-    batches = df['Batch'].values
+    def update_velocity(self, gbest_position, w, c1, c2):
+        r1 = np.random.rand(num_plates)
+        r2 = np.random.rand(num_plates)
+        cognitive = c1 * r1 * (self.best_position - self.position)
+        social = c2 * r2 * (gbest_position - self.position)
+        self.velocity = w * self.velocity + cognitive + social
 
-    # 库区布局和尺寸
-    area_positions = {
-        0: [(0, 0), (0, 1), (0, 2), (1, 0), (1, 1), (1, 2), (2, 0), (2, 1)],
-        1: [(0, 0), (0, 1), (0, 2), (1, 0), (1, 1), (1, 2), (2, 0), (2, 1)],
-        2: [(0, 0), (0, 1), (1, 0), (1, 1), (2, 0), (2, 1)],
-        3: [(0, 0), (0, 1), (1, 0), (1, 1)],
-        4: [(0, 0), (0, 1), (1, 0), (1, 1)],
-        5: [(0, 0), (0, 1), (1, 0), (1, 1)]
-    }
+    def update_position(self, num_positions):
+        self.position = np.clip(self.position + self.velocity, 0, num_positions - 1).astype(int)
 
-    # 库区垛位尺寸
-    stack_dimensions = {
-        0: [(6000, 3000), (9000, 3000), (9000, 3000), (6000, 3000), (9000, 3000), (9000, 3000), (9000, 4000),
-            (15000, 4000)],
-        1: [(6000, 3000), (9000, 3000), (9000, 3000), (6000, 3000), (9000, 3000), (9000, 3000), (15000, 4000),
-            (9000, 4000)],
-        2: [(12000, 3000), (12000, 3000), (12000, 3000), (12000, 3000), (12000, 4000), (12000, 4000)],
-        3: [(9000, 5000), (15000, 5000), (9000, 5000), (15000, 5000)],
-        4: [(18000, 5000), (6000, 5000), (18000, 5000), (6000, 5000)],
-        5: [(12000, 5000), (12000, 5000), (12000, 5000), (12000, 5000)]
-    }
+class PSO_with_Batch:
+    def __init__(self, num_particles, num_positions, w, c1, c2, max_iter, lambda_1, lambda_2, lambda_3, lambda_4,
+                 dataset_name, objectives, use_adaptive):
+        self.num_particles = num_particles
+        self.num_positions = num_positions
+        self.w = w
+        self.c1 = c1
+        self.c2 = c2
+        self.max_iter = max_iter
+        self.use_adaptive = use_adaptive
+        self.particles = [Particle(num_positions) for _ in range(self.num_particles)]
+        self.best_position = None
+        self.best_score = np.inf
+        self.worst_score = -np.inf
+        self.best_improvement = 0
+        self.total_improvement = 0
+        self.lambda_1 = lambda_1
+        self.lambda_2 = lambda_2
+        self.lambda_3 = lambda_3
+        self.lambda_4 = lambda_4
+        self.convergence_data = []
+        self.dataset_name = dataset_name
+        self.stable_iterations = 0
+        self.prev_best_score = np.inf
+        self.start_time = None
+        self.objectives = objectives
+        self.adaptive_param_data = []
 
-    # 每个库区最大堆垛容量，垛位限制高为3000mm
-    Dki = np.array([
-        np.sum([dim[0] * dim[1] * 3000 for dim in stack_dimensions[0]]),  # 库区 1
-        np.sum([dim[0] * dim[1] * 3000 for dim in stack_dimensions[1]]),  # 库区 2
-        np.sum([dim[0] * dim[1] * 3000 for dim in stack_dimensions[2]]),  # 库区 3
-        np.sum([dim[0] * dim[1] * 3000 for dim in stack_dimensions[3]]),  # 库区 4
-        np.sum([dim[0] * dim[1] * 3000 for dim in stack_dimensions[4]]),  # 库区 5
-        np.sum([dim[0] * dim[1] * 3000 for dim in stack_dimensions[5]])  # 库区 6
-    ])
+        # 初始化图表占位符
+        self.convergence_plot_placeholder = st.empty()
+        self.adaptive_param_plot_placeholder = st.empty()
 
-    # 初始化每个库区中的垛位高度
-    heights = np.zeros(len(Dki))
-
-    # 电磁吊的速度，单位：米/分钟 -> 毫米/秒
-    horizontal_speed = 72 * 1000 / 60  # 水平速度：72m/min，转换为 mm/s
-    vertical_speed = 15 * 1000 / 60  # 垂直速度：15m/min，转换为 mm/s
-    stack_flip_time_per_plate = 10  # 每次翻垛需要10秒
-
-    # 传送带位置参数
-    conveyor_position_x = 2000  # 距离库区1-3的传送带水平距离
-    conveyor_position_y = 14000  # 距离库区4-6的传送带水平距离
-
-    #  将交货时间从字符串转换为数值
-    df['Delivery Time'] = pd.to_datetime(df['Delivery Time'])
-    df['Entry Time'] = pd.to_datetime(df['Entry Time'])
-    delivery_times = (df['Delivery Time'] - df['Entry Time']).dt.days.values
-
-    # 动态显示收敛曲线的占位符
-    convergence_plot_placeholder = st.empty()
-    # 动态显示收敛曲线的占位符
-    convergence_plot_placeholder = st.empty()
-
-    # 动态显示收敛曲线的占位符
-    convergence_plot_placeholder = st.empty()
-
-
-    class Particle:
-        def __init__(self, num_positions):
-            self.position = np.random.randint(0, num_positions, size=num_plates)  # 随机初始化位置
-            self.velocity = np.zeros(num_plates)
-            self.best_position = self.position.copy()
-            self.best_score = np.inf
-
-        def update_velocity(self, gbest_position, w, c1, c2):
-            r1 = np.random.rand(num_plates)
-            r2 = np.random.rand(num_plates)
-            cognitive = c1 * r1 * (self.best_position - self.position)
-            social = c2 * r2 * (gbest_position - self.position)
-            self.velocity = w * self.velocity + cognitive + social
-
-        def update_position(self, num_positions):
-            self.position = np.clip(self.position + self.velocity, 0, num_positions - 1).astype(int)
-
-
-    # 定义PSO优化算法
-    class PSO_with_Batch:
-        def __init__(self, num_particles, num_positions, w, c1, c2, max_iter, lambda_1, lambda_2, lambda_3,
-                     lambda_4):
-            self.num_particles = num_particles
-            self.num_positions = num_positions
-            self.w = w
-            self.c1 = c1
-            self.c2 = c2
-            self.max_iter = max_iter
-            self.particles = [Particle(num_positions) for _ in range(self.num_particles)]
-            self.gbest_position = None
-            self.gbest_score = np.inf
-            self.lambda_1 = lambda_1
-            self.lambda_2 = lambda_2
-            self.lambda_3 = lambda_3
-            self.lambda_4 = lambda_4
-            self.convergence_data = []  # 初始化收敛数据
-
-        def optimize(self):
-            global heights
+    def optimize(self):
+        self.start_time = time.time()
+        st.info("PSO Optimization started...")
+        with st.spinner("Running PSO Optimization..."):
             for iteration in range(self.max_iter):
+                improvement_flag = False
                 for particle in self.particles:
-                    if self.gbest_position is None:
-                        self.gbest_position = particle.position.copy()
+                    # 计算当前粒子的得分
+                    current_score = self.evaluate_particle(particle)
 
-                    temp_heights = heights.copy()
-
-                    # 计算目标函数的惩罚项
-                    combined_movement_turnover_penalty = minimize_stack_movements_and_turnover(
-                        particle.position, temp_heights, plates, delivery_times, batches)
-                    energy_time_penalty = minimize_outbound_energy_time_with_batch(particle.position, plates,
-                                                                                   temp_heights)
-                    balance_penalty = maximize_inventory_balance_v2(particle.position, plates)
-                    space_utilization = maximize_space_utilization_v3(particle.position, plates, Dki)
-
-                    # 计算当前的总得分
-                    current_score = (self.lambda_1 * combined_movement_turnover_penalty +
-                                     self.lambda_2 * energy_time_penalty +
-                                     self.lambda_3 * balance_penalty -
-                                     self.lambda_4 * space_utilization)
-
-                    # 更新粒子的历史最佳位置
                     if current_score < particle.best_score:
                         particle.best_score = current_score
                         particle.best_position = particle.position.copy()
 
-                    # 更新全局最佳位置
-                    if current_score < self.gbest_score:
-                        self.gbest_score = current_score
-                        self.gbest_position = particle.position.copy()
+                    if current_score < self.best_score:
+                        improvement_flag = True
+                        self.best_improvement = max(self.best_improvement, self.best_score - current_score)
+                        self.best_score = current_score
+                        self.best_position = particle.position.copy()
 
-                    # 更新粒子的位置和速度
+                    if current_score > self.worst_score:
+                        self.worst_score = current_score
+
+                if improvement_flag:
+                    self.total_improvement += self.prev_best_score - self.best_score
+                    self.prev_best_score = self.best_score
+                    self.stable_iterations = 0
+                else:
+                    self.stable_iterations += 1
+
+                # 更新粒子的位置和速度
                 for particle in self.particles:
-                    particle.update_velocity(self.gbest_position, self.w, self.c1, self.c2)
+                    particle.update_velocity(self.best_position, self.w, self.c1, self.c2)
                     particle.update_position(self.num_positions)
 
-                    # 保存收敛数据
-                self.convergence_data.append([iteration + 1, self.gbest_score])
+                # 自适应调节
+                if self.use_adaptive:
+                    self.w, self.c1, self.c2 = apply_adaptive_pso(self.w, self.c1, self.c2,
+                                                                  self.best_score - current_score,
+                                                                  self.use_adaptive)
+                    self.record_adaptive_params()
 
-                # 实时更新收敛曲线
+                # 更新收敛数据
+                self.convergence_data.append([iteration + 1, self.best_score])
                 self.update_convergence_plot(iteration + 1)
+                # logging.info(f'Iteration {iteration + 1}/{self.max_iter}, Best Score: {self.best_score}')
 
-                # 打印迭代信息
-                print(f'Iteration {iteration + 1}/{self.max_iter}, Best Score: {self.gbest_score}')
+            time_elapsed = time.time() - self.start_time
+            self.save_metrics(time_elapsed)
 
-                # 更新最终高度
-            self.update_final_heights()
+            # 优化结束后，保存历史收敛数据
+            history_data_dir = os.path.join("result/History_ConvergenceData", self.dataset_name, "PSO")
+            save_convergence_history(self.convergence_data, "PSO", self.dataset_name, history_data_dir)
 
-        def update_final_heights(self):
-            global heights
-            heights = np.zeros(len(Dki))
-            for plate_idx, position in enumerate(self.gbest_position):
-                area = position
-                heights[area] += plates[plate_idx, 2]
+    def evaluate_particle(self, particle):
+        combined_movement_turnover_penalty = self.objectives.minimize_stack_movements_and_turnover(
+            particle.position)
+        energy_time_penalty = self.objectives.minimize_outbound_energy_time_with_batch(particle.position)
+        balance_penalty = self.objectives.maximize_inventory_balance_v2(particle.position)
+        space_utilization = self.objectives.maximize_space_utilization_v3(particle.position)
 
-        # PSO类中更新收敛曲线的方法
-        def update_convergence_plot(self, current_iteration):
-            iteration_data = [x[0] for x in self.convergence_data]
-            score_data = [x[1] for x in self.convergence_data]
+        score = (self.lambda_1 * combined_movement_turnover_penalty +
+                 self.lambda_2 * energy_time_penalty +
+                 self.lambda_3 * balance_penalty -
+                 self.lambda_4 * space_utilization)
+        return score
 
-            # 调整图表的尺寸和显示方式
-            plt.figure(figsize=(8, 4))
-            plt.plot(iteration_data, score_data, '-o', color='blue', label='Best Score')
-            plt.xlabel('Iterations')
-            plt.ylabel('Best Score')
-            plt.title(f'Convergence Curve - Iteration {current_iteration}, Best Score {self.gbest_score}')
-            plt.legend()
+    def record_adaptive_params(self):
+        self.adaptive_param_data.append({'w': self.w, 'c1': self.c1, 'c2': self.c2})
 
-            # 使用 Streamlit 的空占位符更新图表，并放入 expander 容器中
-            convergence_plot_placeholder.pyplot(plt)
+    def update_convergence_plot(self, current_iteration):
+        iteration_data = [x[0] for x in self.convergence_data]
+        score_data = [x[1] for x in self.convergence_data]
 
-            # 保存收敛数据到 CSV 文件
-            convergence_data_df = pd.DataFrame(self.convergence_data, columns=['Iteration', 'Best Score'])
-            convergence_data_dir = "result/ConvergenceData"
-            os.makedirs(convergence_data_dir, exist_ok=True)
-            convergence_data_path = os.path.join(convergence_data_dir, 'convergence_data_pso.csv')
-            convergence_data_df.to_csv(convergence_data_path, index=False)
+        fig = make_subplots(specs=[[{"secondary_y": True}]])
+        fig.add_trace(
+            go.Scatter(x=iteration_data, y=score_data, mode='lines+markers', name='Best Score'),
+            secondary_y=False
+        )
+        fig.update_layout(
+            title=f'Convergence Curve - Iteration {current_iteration}, Best Score {self.best_score}',
+            xaxis_title='Iterations',
+            legend=dict(x=0.75, y=1)
+        )
+        fig.update_yaxes(title_text="Best Score", secondary_y=False)
 
+        self.convergence_plot_placeholder.plotly_chart(fig)
+
+        if self.use_adaptive:
+            self.update_adaptive_param_plot()
+
+    def update_adaptive_param_plot(self):
+        iteration_data = list(range(1, len(self.adaptive_param_data) + 1))
+        w_data = [x['w'] for x in self.adaptive_param_data]
+        c1_data = [x['c1'] for x in self.adaptive_param_data]
+        c2_data = [x['c2'] for x in self.adaptive_param_data]
+
+        fig = go.Figure()
+        fig.add_trace(
+            go.Scatter(x=iteration_data, y=w_data, mode='lines+markers', name='Inertia Weight (w)')
+        )
+        fig.add_trace(
+            go.Scatter(x=iteration_data, y=c1_data, mode='lines+markers', name='Cognitive Component (c1)')
+        )
+        fig.add_trace(
+            go.Scatter(x=iteration_data, y=c2_data, mode='lines+markers', name='Social Component (c2)')
+        )
+        fig.update_layout(
+            title="Adaptive Parameter Changes",
+            xaxis_title="Iterations",
+            yaxis_title="Parameter Values",
+            legend=dict(x=0.75, y=1)
+        )
+
+        self.adaptive_param_plot_placeholder.plotly_chart(fig)
+
+    def save_metrics(self, time_elapsed):
+        iterations = len(self.convergence_data)
+        save_performance_metrics(
+            self.best_score, self.worst_score, self.best_improvement, self.total_improvement,
+            iterations, time_elapsed, self.convergence_data, self.stable_iterations, self.dataset_name, "PSO"
+        )
