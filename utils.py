@@ -386,6 +386,7 @@ def generate_stacking_heatmaps(df, area_positions):
         st.plotly_chart(generate_single_area_heatmap(df, 6, area_positions[5], zmin, zmax), use_container_width=True)
 
 
+
 # 运行优化并展示堆垛俯视图和分布
 def run_optimization(optimizer_class, params, df, area_positions, output_dir_base, algorithm_name):
     optimizer = optimizer_class(**params)
