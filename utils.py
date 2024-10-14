@@ -373,18 +373,17 @@ def generate_stacking_heatmaps(df, area_positions):
 
     # 只让颜色条显示在顶部，其他热力图不显示颜色条
     with row1_col1:
-        st.plotly_chart(generate_single_area_heatmap(df, 1, area_positions[0], zmin, zmax), use_container_width=True)
+        st.plotly_chart(generate_single_area_heatmap(df, 0, area_positions[0], zmin, zmax), use_container_width=True)
     with row1_col2:
-        st.plotly_chart(generate_single_area_heatmap(df, 2, area_positions[1], zmin, zmax), use_container_width=True)
+        st.plotly_chart(generate_single_area_heatmap(df, 1, area_positions[1], zmin, zmax), use_container_width=True)
     with row1_col3:
-        st.plotly_chart(generate_single_area_heatmap(df, 3, area_positions[2], zmin, zmax), use_container_width=True)
+        st.plotly_chart(generate_single_area_heatmap(df, 2, area_positions[2], zmin, zmax), use_container_width=True)
     with row2_col1:
-        st.plotly_chart(generate_single_area_heatmap(df, 4, area_positions[3], zmin, zmax), use_container_width=True)
+        st.plotly_chart(generate_single_area_heatmap(df, 3, area_positions[3], zmin, zmax), use_container_width=True)
     with row2_col2:
-        st.plotly_chart(generate_single_area_heatmap(df, 5, area_positions[4], zmin, zmax), use_container_width=True)
+        st.plotly_chart(generate_single_area_heatmap(df, 4, area_positions[4], zmin, zmax), use_container_width=True)
     with row2_col3:
-        st.plotly_chart(generate_single_area_heatmap(df, 6, area_positions[5], zmin, zmax), use_container_width=True)
-
+        st.plotly_chart(generate_single_area_heatmap(df, 5, area_positions[5], zmin, zmax), use_container_width=True)
 
 
 # 运行优化并展示堆垛俯视图和分布
