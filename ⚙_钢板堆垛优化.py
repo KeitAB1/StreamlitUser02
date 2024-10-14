@@ -140,5 +140,3 @@ if df is not None:
 
     if start_work:
         run_optimization(PSO_SA_Optimizer, psosa_params, df, DEFAULT_AREA_POSITIONS, output_dir_base, "psosa")
-
-

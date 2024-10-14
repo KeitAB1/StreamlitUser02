@@ -73,7 +73,7 @@ class SA_with_Batch:
 
         progress_bar = st.progress(0)
 
-        with st.spinner("Running SA Optimization..."):
+        with st.spinner("正在运行模拟退火优化..."):
             for iteration in range(self.max_iterations):
                 if current_temperature < self.min_temperature:
                     break
@@ -118,6 +118,9 @@ class SA_with_Batch:
                 # 更新进度条
                 progress_percentage = (iteration + 1) / self.max_iterations
                 progress_bar.progress(progress_percentage)
+
+        # 优化结束后清除进度条
+        progress_bar.empty()
 
         avg_score = np.mean(scores)
         score_std = np.std(scores)

@@ -10,6 +10,7 @@ from utils import save_convergence_history, save_performance_metrics
 from optimization_utils import evaluate_parallel, evaluate_with_cache, apply_adaptive_pso, apply_adaptive_sa
 
 
+
 # PSO 的粒子类定义
 class Particle:
     def __init__(self, num_positions, num_plates):
@@ -27,6 +28,7 @@ class Particle:
 
     def update_position(self, num_positions):
         self.position = np.clip(self.position + self.velocity, 0, num_positions - 1).astype(int)
+
 
 
 class PSO_with_Batch:
@@ -110,6 +112,9 @@ class PSO_with_Batch:
                 progress_percentage = (iteration + 1) / self.max_iter
                 progress_bar.progress(progress_percentage)
 
+        # 优化结束后清除进度条
+        progress_bar.empty()
+
         time_elapsed = time.time() - self.start_time
         self.save_metrics(time_elapsed)
 
@@ -140,6 +145,16 @@ class PSO_with_Batch:
             iterations, time_elapsed, self.convergence_data, self.stable_iterations, self.dataset_name, "PSO"
         )
 
+
+import streamlit as st
+import numpy as np
+import pandas as pd
+import time
+import os
+import logging
+from utils import save_convergence_history, save_performance_metrics
+from optimization_utils import evaluate_parallel, evaluate_with_cache
+from optimization_utils import apply_adaptive_sa
 
 class SA_with_Batch:
     def __init__(self, initial_temperature, cooling_rate, min_temperature, max_iterations, lambda_1, lambda_2,
@@ -252,6 +267,9 @@ class SA_with_Batch:
                 progress_percentage = (iteration + 1) / self.max_iterations
                 progress_bar.progress(progress_percentage)
 
+        # 优化结束后清除进度条
+        progress_bar.empty()
+
         avg_score = np.mean(scores)
         score_std = np.std(scores)
         time_elapsed = time.time() - self.start_time
@@ -290,7 +308,6 @@ class SA_with_Batch:
             self.dataset_name,
             "SA"
         )
-
 
 class PSO_SA_Optimizer:
     def __init__(self, num_particles, num_positions, num_plates, w, c1, c2, max_iter_pso,
