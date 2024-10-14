@@ -263,7 +263,7 @@ def add_download_button(file_path, algorithm_name):
 
 
 # 生成单个库区的堆垛俯视热力图
-def generate_single_area_heatmap(df, area, positions, zmin, zmax):
+def generate_single_area_heatmap(df, area, positions, zmin, zmax, width=300, height=300):
     x_values = []
     y_values = []
     z_values = []
@@ -302,10 +302,13 @@ def generate_single_area_heatmap(df, area, positions, zmin, zmax):
         xaxis_title="X 轴",
         yaxis_title="Y 轴",
         yaxis_autorange='reversed',  # 反转 Y 轴，使 (0, 0) 从左上角开始
-        showlegend=False
+        showlegend=False,
+        width=width,  # 设置图表宽度
+        height=height  # 设置图表高度
     )
 
     return fig
+
 
 # 生成单独的颜色条
 def generate_colorbar(zmin, zmax):
@@ -361,17 +364,18 @@ def generate_stacking_heatmaps(df, area_positions):
 
     # 只让颜色条显示在顶部，其他热力图不显示颜色条
     with row1_col1:
-        st.plotly_chart(generate_single_area_heatmap(df, 0, area_positions[0], zmin, zmax), use_container_width=True)
+        st.plotly_chart(generate_single_area_heatmap(df, 0, area_positions[0], zmin, zmax, width=300, height=300), use_container_width=True)
     with row1_col2:
-        st.plotly_chart(generate_single_area_heatmap(df, 1, area_positions[1], zmin, zmax), use_container_width=True)
+        st.plotly_chart(generate_single_area_heatmap(df, 1, area_positions[1], zmin, zmax, width=300, height=300), use_container_width=True)
     with row1_col3:
-        st.plotly_chart(generate_single_area_heatmap(df, 2, area_positions[2], zmin, zmax), use_container_width=True)
+        st.plotly_chart(generate_single_area_heatmap(df, 2, area_positions[2], zmin, zmax, width=300, height=300), use_container_width=True)
     with row2_col1:
-        st.plotly_chart(generate_single_area_heatmap(df, 3, area_positions[3], zmin, zmax), use_container_width=True)
+        st.plotly_chart(generate_single_area_heatmap(df, 3, area_positions[3], zmin, zmax, width=300, height=300), use_container_width=True)
     with row2_col2:
-        st.plotly_chart(generate_single_area_heatmap(df, 4, area_positions[4], zmin, zmax), use_container_width=True)
+        st.plotly_chart(generate_single_area_heatmap(df, 4, area_positions[4], zmin, zmax, width=300, height=300), use_container_width=True)
     with row2_col3:
-        st.plotly_chart(generate_single_area_heatmap(df, 5, area_positions[5], zmin, zmax), use_container_width=True)
+        st.plotly_chart(generate_single_area_heatmap(df, 5, area_positions[5], zmin, zmax, width=300, height=300), use_container_width=True)
+
 
 
 # 运行优化并展示堆垛俯视图和分布
