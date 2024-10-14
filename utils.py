@@ -171,12 +171,9 @@ def generate_stacking_distribution_statistics(df, area_positions, output_dir_bas
 
     result_df = pd.DataFrame(results)
 
-    col1, col2 = st.columns([0.03, 0.97])
-    with col1:
-        st.image("data/icon/icon01.jpg", width=20)
-    with col2:
-        # 使用 display_icon_with_header 函数替换现有的图标和标题显示逻辑
-        display_icon_with_header("data/icon/icon01.jpg", "垛位分布统计表", font_size="24px", icon_size="20px")
+
+    # 使用 display_icon_with_header 函数替换现有的图标和标题显示逻辑
+    display_icon_with_header("data/icon/icon01.jpg", "垛位分布统计表", font_size="24px", icon_size="20px")
     st.dataframe(result_df)
 
     col3, col4, col = st.columns([0.01, 0.44, 0.55])
@@ -251,12 +248,9 @@ def generate_stacking_distribution_statistics(df, area_positions, output_dir_bas
     return final_stack_distribution_path
 
 def add_download_button(file_path, algorithm_name):
-    col5, col6 = st.columns([0.03, 0.97])
-    with col5:
-        st.image("data/icon/icon01.jpg", width=20)
-    with col6:
-        # 使用 display_icon_with_header 函数替换现有的图标和标题显示逻辑
-        display_icon_with_header("data/icon/icon01.jpg", "堆垛分布详情", font_size="24px", icon_size="20px")
+
+    # 使用 display_icon_with_header 函数替换现有的图标和标题显示逻辑
+    display_icon_with_header("data/icon/icon01.jpg", "堆垛分布详情", font_size="24px", icon_size="20px")
     with open(file_path, 'rb') as file:
         st.download_button(
             label=f"Download Result",
