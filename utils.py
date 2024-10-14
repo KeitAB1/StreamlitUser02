@@ -6,6 +6,14 @@ import plotly.graph_objects as go
 import plotly.express as px
 from datetime import datetime
 
+# 从 constants 文件中引入常量
+from constants import (
+    OUTPUT_DIR, CONVERGENCE_DIR, DATA_DIR, TEST_DATA_PATH,
+    DEFAULT_AREA_POSITIONS, DEFAULT_STACK_DIMENSIONS,
+    HORIZONTAL_SPEED, VERTICAL_SPEED, STACK_FLIP_TIME_PER_PLATE,
+    INBOUND_POINT, OUTBOUND_POINT, Dki
+)
+
 def extract_timestamp_from_filename(file_name):
     parts = file_name.split('_')
     if len(parts) >= 5:
@@ -169,9 +177,11 @@ def generate_stacking_distribution_statistics(df, area_positions, output_dir_bas
         st.write("#### 垛位分布统计表")
     st.dataframe(result_df)
 
-    col3, col4 = st.columns([0.01, 0.99])
+    col3, col4, col = st.columns([0.01, 0.44, 0.55])
     with col3:
         st.image("data/icon/icon02.jpg", width=20)
+    with col:
+        st.image("data/icon/img.png", width=20)
     with col4:
         chart_type = st.selectbox("选择图表类型", ["组合图 (柱状图+折线图)", "柱状图", "折线图", "面积图"])
 
@@ -246,7 +256,7 @@ def add_download_button(file_path, algorithm_name):
         st.write("#### 堆垛分布详情")
     with open(file_path, 'rb') as file:
         st.download_button(
-            label=f"download",
+            label=f"Download Result",
             data=file,
             file_name=f'final_stack_distribution_plates_{algorithm_name}.csv',
             mime='text/csv'
@@ -254,10 +264,140 @@ def add_download_button(file_path, algorithm_name):
     df_plates_with_batch = pd.read_csv(file_path)
     st.dataframe(df_plates_with_batch.head(5))
 
+
+
+
+import streamlit as st
+import pandas as pd
+import os
+import numpy as np
+import plotly.graph_objects as go
+from datetime import datetime
+
+# 生成单个库区的堆垛俯视热力图
+def generate_single_area_heatmap(df, area, positions, zmin, zmax):
+    x_values = []
+    y_values = []
+    z_values = []
+
+    # 初始化每个位置的堆垛高度为0
+    height_matrix = {pos: 0.0 for pos in positions}
+
+    # 填充堆垛高度到矩阵中
+    for index, row in df.iterrows():
+        if row['Final Area'] == area:
+            x = int(row['Final X'])
+            y = int(row['Final Y'])
+            stacking_height = row['Stacking Height']
+            height_matrix[(x, y)] = stacking_height
+
+    # 获取 x, y, z 数据
+    for (x, y) in positions:
+        x_values.append(x)
+        y_values.append(y)
+        z_values.append(height_matrix[(x, y)])
+
+    # 创建热力图，使用Blues色阶，并设置 zmin 和 zmax
+    fig = go.Figure(data=go.Heatmap(
+        x=x_values,
+        y=y_values,
+        z=z_values,
+        zmin=zmin,  # 设置统一的最小值
+        zmax=zmax,  # 设置统一的最大值
+        colorscale='Blues',  # 使用浅蓝色为主的色阶
+        showscale=False  # 不显示颜色条
+    ))
+
+    # 设置 Y 轴反转，使 (0, 0) 从左上角开始
+    fig.update_layout(
+        title=f"库区 {area} 堆垛俯视图",
+        xaxis_title="X 轴",
+        yaxis_title="Y 轴",
+        yaxis_autorange='reversed',  # 反转 Y 轴，使 (0, 0) 从左上角开始
+        showlegend=False
+    )
+
+    return fig
+
+# 生成单独的颜色条
+def generate_colorbar(zmin, zmax):
+    fig = go.Figure()
+
+    # 通过 Scatter 生成颜色条
+    fig.add_trace(go.Scatter(
+        x=[None],  # 不绘制图形，仅用于生成颜色条
+        y=[None],  # 不绘制图形，仅用于生成颜色条
+        mode='markers',
+        marker=dict(
+            colorscale='Blues',  # 使用Blues色阶
+            cmin=zmin,
+            cmax=zmax,
+            colorbar=dict(
+                title="堆垛高度",
+                orientation="h",  # 水平放置颜色条
+                x=0.1,  # 放置在中央
+                xanchor="center",  # 中心对齐
+                thickness=20,  # 颜色条的厚度
+                lenmode="pixels",  # 控制颜色条长度为像素
+                len=400  # 设置颜色条长度，400像素
+            ),
+        ),
+        hoverinfo='none'  # 不显示任何悬停信息
+    ))
+
+    fig.update_layout(
+        margin=dict(l=0, r=0, t=50, b=0),  # 调整边距，只保留顶部空间
+        height=100,  # 设置高度，确保只显示颜色条
+        xaxis=dict(showticklabels=False),  # 不显示X轴的标签
+        yaxis=dict(showticklabels=False),  # 不显示Y轴的标签
+        xaxis_visible=False,  # 不显示X轴
+        yaxis_visible=False   # 不显示Y轴
+    )
+
+    return fig
+
+
+# 生成多个库区的堆垛俯视热力图并排列
+def generate_stacking_heatmaps(df, area_positions):
+    # 计算所有库区中堆垛高度的最小值和最大值，以便统一色阶
+    all_heights = df['Stacking Height'].values
+    zmin = np.min(all_heights)  # 最小堆垛高度
+    zmax = np.max(all_heights)  # 最大堆垛高度
+
+    # 显示单独的颜色条
+    st.plotly_chart(generate_colorbar(zmin, zmax), use_container_width=True)
+
+    # 定义两行三列的布局
+    row1_col1, row1_col2, row1_col3 = st.columns(3)
+    row2_col1, row2_col2, row2_col3 = st.columns(3)
+
+    # 只让颜色条显示在顶部，其他热力图不显示颜色条
+    with row1_col1:
+        st.plotly_chart(generate_single_area_heatmap(df, 1, area_positions[0], zmin, zmax), use_container_width=True)
+    with row1_col2:
+        st.plotly_chart(generate_single_area_heatmap(df, 2, area_positions[1], zmin, zmax), use_container_width=True)
+    with row1_col3:
+        st.plotly_chart(generate_single_area_heatmap(df, 3, area_positions[2], zmin, zmax), use_container_width=True)
+    with row2_col1:
+        st.plotly_chart(generate_single_area_heatmap(df, 4, area_positions[3], zmin, zmax), use_container_width=True)
+    with row2_col2:
+        st.plotly_chart(generate_single_area_heatmap(df, 5, area_positions[4], zmin, zmax), use_container_width=True)
+    with row2_col3:
+        st.plotly_chart(generate_single_area_heatmap(df, 6, area_positions[5], zmin, zmax), use_container_width=True)
+
+
+# 运行优化并展示堆垛俯视图和分布
 def run_optimization(optimizer_class, params, df, area_positions, output_dir_base, algorithm_name):
     optimizer = optimizer_class(**params)
     optimizer.optimize()
     output_file_plates_with_batch = save_and_visualize_results(optimizer, df, area_positions, output_dir_base,
                                                                algorithm_name)
     generate_stacking_distribution_statistics(df, area_positions, output_dir_base, algorithm_name)
+
+    # 分区展示堆垛俯视图
+    st.write("### 库区堆垛俯视图")
+    generate_stacking_heatmaps(df, area_positions)
+
     add_download_button(output_file_plates_with_batch, algorithm_name)
+
+

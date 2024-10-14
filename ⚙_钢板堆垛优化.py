@@ -11,6 +11,7 @@ from utils import save_convergence_history, add_download_button, run_optimizatio
 # 从 constants 文件中引入常量
 from constants import (
     OUTPUT_DIR, CONVERGENCE_DIR, DATA_DIR, TEST_DATA_PATH,
+    AREA_POSITIONS_DIMENSIONS,
     DEFAULT_AREA_POSITIONS, DEFAULT_STACK_DIMENSIONS,
     HORIZONTAL_SPEED, VERTICAL_SPEED, STACK_FLIP_TIME_PER_PLATE,
     INBOUND_POINT, OUTBOUND_POINT, Dki
@@ -62,13 +63,12 @@ elif data_choice == "使用系统数据集":
         st.image("data/icon/img.png", width=20)
     with col6:
         available_datasets = [f.replace('.csv', '') for f in os.listdir(system_data_dir) if f.endswith('.csv')]
-        selected_dataset = st.selectbox("选择系统数据集", [""] + available_datasets)
+        selected_dataset = st.selectbox("系统数据集", [""] + available_datasets)
         if selected_dataset:
             dataset_name = selected_dataset
             system_dataset_path = os.path.join(system_data_dir, f"{selected_dataset}.csv")
             df = pd.read_csv(system_dataset_path)
-            st.write(f"已选择系统数据集：{selected_dataset}")
-            st.write(df.head())
+
 
 
 # 优化参数配置
@@ -123,6 +123,6 @@ if df is not None:
         'use_adaptive': use_adaptive
     }
 
-    if st.button("开始优化"):
+    if st.button("Start Work"):
         run_optimization(SA_with_Batch, sa_params, df, DEFAULT_AREA_POSITIONS, output_dir_base, "sa")
 
