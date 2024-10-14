@@ -7,7 +7,9 @@ import plotly.express as px
 from optimization_objectives import SteelPlateStackingObjectives as OptimizationObjectives
 # 从 PSOSA 优化器引入 PSO_SA_Optimizer
 from optimizers.psosa_optimizer import PSO_SA_Optimizer
+from optimizers.eda_optimizer import EDA_with_Batch  # 引入 EDA 优化算法
 from utils import save_convergence_history, add_download_button, run_optimization, display_icon_with_header
+from optimizer_runner import OptimizerRunner  # 导入优化算法管理器
 
 # 从 constants 文件中引入常量
 from constants import (
@@ -67,14 +69,12 @@ elif data_choice == "使用系统数据集":
             system_dataset_path = os.path.join(system_data_dir, f"{selected_dataset}.csv")
             df = pd.read_csv(system_dataset_path)
 
-
 # 添加勾选按钮和 Start Work 按钮放在一行
 col7, col8 = st.columns([0.15, 0.85])
 with col7:
     deep_optimization = st.checkbox("启用深度优化")
 with col8:
     start_work = st.button("Start Work")
-
 
 # 优化参数配置
 initial_temperature = 1000.0
@@ -86,6 +86,12 @@ max_iter_pso = 2  # PSO最大迭代次数
 w, c1, c2 = 0.5, 1.5, 1.5  # PSO 参数
 lambda_1, lambda_2, lambda_3, lambda_4 = 1.0, 1.0, 1.0, 1.0
 use_adaptive = True
+
+# EDA 优化参数配置
+pop_size = 50  # EDA 种群大小
+max_iter_eda = 2  # EDA最大迭代次数
+mutation_rate = 0.1  # EDA变异率
+crossover_rate = 0.7  # EDA交叉率
 
 # 优化分析
 if df is not None:
@@ -115,28 +121,51 @@ if df is not None:
         vertical_speed=VERTICAL_SPEED
     )
 
-    # PSOSA 参数
-    psosa_params = {
-        'num_particles': num_particles,
-        'num_positions': num_positions,
-        'w': w,
-        'c1': c1,
-        'c2': c2,
-        'max_iter_pso': max_iter_pso,
-        'initial_temperature': initial_temperature,
-        'cooling_rate': cooling_rate,
-        'min_temperature': min_temperature,
-        'max_iterations_sa': max_iterations_sa,
-        'lambda_1': lambda_1,
-        'lambda_2': lambda_2,
-        'lambda_3': lambda_3,
-        'lambda_4': lambda_4,
-        'num_positions': num_positions,  # 库区/垛位数量
-        'num_plates': num_plates,  # 钢板数量，添加此行
-        'dataset_name': dataset_name,
-        'objectives': objectives,
-        'use_adaptive': use_adaptive
+    # 多种优化算法的参数配置
+    algorithms_params = {
+        "PSO_SA_Optimizer": {
+            'num_particles': num_particles,
+            'num_positions': num_positions,
+            'w': w,
+            'c1': c1,
+            'c2': c2,
+            'max_iter_pso': max_iter_pso,
+            'initial_temperature': initial_temperature,
+            'cooling_rate': cooling_rate,
+            'min_temperature': min_temperature,
+            'max_iterations_sa': max_iterations_sa,
+            'lambda_1': lambda_1,
+            'lambda_2': lambda_2,
+            'lambda_3': lambda_3,
+            'lambda_4': lambda_4,
+            'num_positions': num_positions,  # 库区/垛位数量
+            'num_plates': num_plates,  # 钢板数量
+            'dataset_name': dataset_name,
+            'objectives': objectives,
+            'use_adaptive': use_adaptive
+        },
+        "EDA_with_Batch": {
+            'pop_size': pop_size,
+            'num_positions': num_positions,
+            'num_plates': num_plates,  # 添加 num_plates 参数
+            'max_iter': max_iter_eda,
+            'mutation_rate': mutation_rate,
+            'crossover_rate': crossover_rate,
+            'lambda_1': lambda_1,
+            'lambda_2': lambda_2,
+            'lambda_3': lambda_3,
+            'lambda_4': lambda_4,
+            'dataset_name': dataset_name,
+            'objectives': objectives,
+            'use_adaptive': use_adaptive
+        }
     }
 
     if start_work:
-        run_optimization(PSO_SA_Optimizer, psosa_params, df, DEFAULT_AREA_POSITIONS, output_dir_base, "psosa")
+        if deep_optimization:
+            # 启用深度优化，运行多个优化算法并选择最佳方案
+            optimizer_runner = OptimizerRunner(algorithms_params, df, DEFAULT_AREA_POSITIONS, output_dir_base)
+            optimizer_runner.run_optimization()
+        else:
+            # 仅运行单一优化算法 PSO_SA_Optimizer
+            run_optimization(PSO_SA_Optimizer, algorithms_params["PSO_SA_Optimizer"], df, DEFAULT_AREA_POSITIONS, output_dir_base, "psosa")

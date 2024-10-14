@@ -171,7 +171,6 @@ def generate_stacking_distribution_statistics(df, area_positions, output_dir_bas
 
     result_df = pd.DataFrame(results)
 
-
     # 使用 display_icon_with_header 函数替换现有的图标和标题显示逻辑
     display_icon_with_header("data/icon/icon01.jpg", "垛位分布统计表", font_size="24px", icon_size="20px")
     st.dataframe(result_df)
@@ -182,12 +181,13 @@ def generate_stacking_distribution_statistics(df, area_positions, output_dir_bas
     with col:
         st.image("data/icon/img.png", width=20)
     with col4:
-        chart_type = st.selectbox("选择图表类型", ["组合图 (柱状图+折线图)", "柱状图", "折线图", "面积图"])
+        # 为 selectbox 添加唯一的 key
+        chart_type = st.selectbox("选择图表类型", ["组合图 (柱状图+折线图)", "柱状图", "折线图", "面积图"], key=f"chart_selectbox_{algorithm_name}")
 
     def get_bar_width(num_positions):
-        if num_positions <= 3:
+        if (num_positions <= 3):
             return 0.3
-        elif num_positions <= 6:
+        elif (num_positions <= 6):
             return 0.2
         else:
             return 0.1
@@ -246,6 +246,7 @@ def generate_stacking_distribution_statistics(df, area_positions, output_dir_bas
     result_df.to_csv(final_stack_distribution_path, index=False)
 
     return final_stack_distribution_path
+
 
 def add_download_button(file_path, algorithm_name):
 
