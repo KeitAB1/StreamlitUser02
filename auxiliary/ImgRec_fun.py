@@ -789,3 +789,7 @@ def calculate_accuracy(recognized_text, correct_text):
     accuracy = match_count / len(correct_text) if len(correct_text) > 0 else 0
     return accuracy
 
+
+
+
+
