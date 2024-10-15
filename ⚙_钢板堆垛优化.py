@@ -81,8 +81,6 @@ elif data_choice == "使用系统数据集":
 start_work = st.button("Start Work")
 
 
-
-
 # 优化参数配置
 initial_temperature = 1000.0
 cooling_rate = 0.9
