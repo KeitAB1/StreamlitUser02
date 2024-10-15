@@ -1,5 +1,6 @@
 import os
 import base64
+import re
 import pandas as pd
 import plotly.io as pio
 import streamlit as st
@@ -115,3 +116,77 @@ def display_icon_with_header(icon_path, header_text, font_size="24px"):
         )
     else:
         st.markdown(f"<h3 style='font-size: {font_size};'>{header_text}</h3>", unsafe_allow_html=True)
+
+
+# 主函数：将字符串分割并返回处理后的DataFrame
+def generate_csv_from_column(df, column_name):
+    # 去除首尾空格，并将连续空格替换为一个空格
+    def clean_string(input_string):
+        return re.sub(r'\s+', ' ', input_string.strip())
+
+    # 提取"Material"列
+    def extract_material(input_string):
+        match_material = re.search(r'Q\S*', input_string)
+        return match_material.group(0) if match_material else None
+
+    # 提取"Furnace"列
+    def extract_furnace(input_string, material):
+        furnace_split = input_string.split(' ')
+        if material in furnace_split:
+            index_after_material = furnace_split.index(material) + 2
+            if index_after_material < len(furnace_split):
+                return furnace_split[index_after_material]
+        return None
+
+    # 提取"Standard"列
+    def extract_standard(input_string):
+        # 正则表达式匹配 "GB/T" 开头，直到第二个空格之前
+        match_standard = re.search(r'(GB/T[^\s]*\s[^\s]*)', input_string)
+        if match_standard:
+            return match_standard.group(0)
+        return None
+
+    # 提取"Thickness", "Length", "Width"列
+    def extract_dimensions(input_string):
+        # 使用正则表达式匹配维度：三个数字由 x, X 或 * 分隔
+        match_dimensions = re.search(r'(\d+)[xX*](\d+)[xX*](\d+)', input_string)
+        if match_dimensions:
+            values = list(map(int, match_dimensions.groups()))
+            # 对三个值进行排序，确保长 > 宽 > 厚
+            values.sort(reverse=True)
+            length, width, thickness = values
+            return thickness, length, width
+
+        return None, None, None
+
+    # 初始化一个新的DataFrame来存储结果
+    result_data = []
+
+    # 对每一行进行分割
+    for index, row in df.iterrows():
+        input_string = clean_string(row[column_name])
+
+        material = extract_material(input_string)
+        furnace = extract_furnace(input_string, material)
+        standard = extract_standard(input_string)
+        thickness, length, width = extract_dimensions(input_string)
+
+        # 将filename列也包含到结果中
+        filename = row['Filename'] if 'Filename' in df.columns else None
+
+        # 将提取到的数据添加到列表中
+        result_data.append({
+            "Filename": filename,  # 加入Filename列
+            "Material": material,
+            "Furnace": furnace,
+            "Standard": standard,
+            "Thickness": thickness,
+            "Width": width,
+            "Length": length
+        })
+
+    # 转换为DataFrame
+    result_df = pd.DataFrame(result_data)
+
+    # 返回结果的DataFrame
+    return result_df

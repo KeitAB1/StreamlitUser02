@@ -16,26 +16,35 @@ import plotly.io as pio
 
 class ImgRec:
     def __init__(self):
+        self.path_Set()
         self.reader = None
+        self.allowlist = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789()-/* '
         self.average_confidences = []
-        self.x1,self.y1, = 0,0
+        self.Batch = 0
+        self.x1,self.y1 = 0,0
         self.x2,self.y2 = 160,90
         self.mask_type = 'black'
         self.isMask = False
-        self.IMAGE_SAVE_DIR = 'result/ImageRecognition_Img'
-        self.CSV_FILE_DIR = 'result/ImageRecognition_CSV'
-        self.CSV_FILE_PATH = self.CSV_FILE_DIR + '/recognized_results.csv'
+        self.isDisplay = False
+        self.Rec_df = None
 
-
-    def clear_confidences(self):
-        # 清空置信度列表
-        self.average_confidences = []
+    #初始化路径
+    def path_Set(self):
+        self.IMAGE_SAVE_DIR = 'result/ImageRecognition_Img' #图片保存路径
+        self.CSV_FILE_DIR = 'result/ImageRecognition_CSV'   #csv结果文件夹路径
+        self.CSV_FILE_PATH = self.CSV_FILE_DIR + '/recognized_results.csv'  #编码识别csv路径
+        self.CSV_OUTPUT_PATH = self.CSV_FILE_DIR + '/Output_steel_data.csv' #编码分割csv路径
 
     def set_reader(self, reader_instance):
         """
         设置模型实例。
         """
         self.reader = reader_instance
+
+    def clear_confidences(self):
+        # 清空置信度列表
+        self.average_confidences = []
+
 
     #在图像上绘制方框及识别的文本
     def draw_boxes(self, image, results):
@@ -90,8 +99,7 @@ class ImgRec:
             image = np.array(image)
 
         # 文字识别
-        allowlist = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789()-/* '
-        results = self.reader.readtext(image, allowlist=allowlist, link_threshold=0.8, paragraph=False)
+        results = self.reader.readtext(image, allowlist=self.allowlist, link_threshold=0.8, paragraph=False)
 
         # 提取识别结果
         recognition_text = ''
@@ -114,6 +122,7 @@ class ImgRec:
 
         # 返回附带准确率的结果
         return file_name, recognition_text, average_confidence, accuracy, timestamp
+
 
     #文件夹图片识别
     def process_images_from_folder(self, folder_path, progress_placeholder, IMAGE_SAVE_DIR, table_data=None):
@@ -148,7 +157,7 @@ class ImgRec:
             # 更新进度条
             progress_placeholder.progress((idx + 1) / total_images)
 
-        plot_confidences(self.average_confidences)
+        #plot_confidences(self.average_confidences)
         return data, total_images
 
     # 上传图片识别
@@ -180,16 +189,18 @@ class ImgRec:
         st.write("请选择图像输入方式 📥")
 
         # 选择图像输入方式
-        option = st.selectbox('🔍 请选择输入方式', ['从项目文件夹中选择图像', '手动上传图像'], key="key_for_ImgRec_kinds")
+        option = st.selectbox('🔍 请选择输入方式', ['测试数据集', '手动上传图像'], key="key_for_ImgRec_kinds")
 
         if option == '从项目文件夹中选择图像':
-
+            col_folder, col_file = st.columns([0.5, 0.5])
             base_folder_path = 'data/plate_img'
             subfolders = [f for f in os.listdir(base_folder_path) if
                           os.path.isdir(os.path.join(base_folder_path, f)) and f.startswith('Image_src')]
 
             if subfolders:
-                selected_subfolder = st.selectbox('📂 请选择一个图像文件夹',subfolders, key="key_for_ImgRec_folder")
+                selected_subfolder = ''
+                with col_folder:
+                    selected_subfolder = st.selectbox('📂 请选择一个图像文件夹',subfolders, key="key_for_ImgRec_folder")
                 folder_path = os.path.join(base_folder_path, selected_subfolder)
                 if os.path.exists(folder_path):
                     # 加载table.csv
@@ -201,12 +212,31 @@ class ImgRec:
                     #显示文件夹中图片
                     image_files = os.listdir(folder_path)
                     if image_files:
-                        selected_image = st.selectbox("🖼️ 选择一个图像进行预览", image_files,key="key_for_preview_image")
-                        image_path = os.path.join(folder_path, selected_image)
-                        image = Image.open(image_path)
-                        # 在侧边栏中显示图片
-                        st.image(image, caption=os.path.basename(image_path), use_column_width=True)
-
+                        selected_image = ''
+                        with col_file:
+                            selected_image = st.selectbox("🖼️ 选择一个图像进行预览", [""] + image_files,key="key_for_preview_image_unique")
+                        if selected_image:
+                            # 显示文件夹中图片
+                            image_files = os.listdir(folder_path)
+                            if image_files:
+                                image_path = os.path.join(folder_path, selected_image)
+                                image = Image.open(image_path)
+                                col_img, col_text = st.columns([0.5, 0.5])
+                                with col_img:
+                                    st.image(image, caption=os.path.basename(image_path))
+                                with col_text:
+                                    correct_text = ''
+                                    if table_data is not None:
+                                        result = table_data.loc[
+                                            table_data['Filename'] == selected_image, 'Recognized Text'].values
+                                        if len(result) > 0:
+                                            correct_text = result[0]
+                                        else:
+                                            correct_text = None
+                                    st.write('Correct Text: ')
+                                    st.write(correct_text)
+                    result_title = st.empty()
+                    result_display = st.empty()
                     if st.button('🚀 Start Recognition'):
                         # 使用 st.empty() 创建一个占位符
                         placeholder = st.empty()
@@ -224,18 +254,25 @@ class ImgRec:
                                 elif data:
                                     ru.append_to_csv(data, CSV_FILE_PATH)
                                     df = pd.DataFrame(data)
-                                    st.dataframe(df)  # 实时显示当前处理的图像结果
+                                    self.Rec_df = df
+
                                     placeholder.success(
                                         f'✅ 识别完成！结果已保存到 recognized_results.csv （文件夹：{selected_subfolder}）')
+                                progress_placeholder.empty()
+
+
                             else:
                                 placeholder.error(f'❌ 文件夹 {folder_path} 不存在！')
-
-                        Rec_history_image(self.IMAGE_SAVE_DIR)
-                        csv_display(self.CSV_FILE_PATH)
-                        plot_confidences_from_csv(self.CSV_FILE_PATH)
-                        display_chart()
+                    if self.Rec_df is not None:
+                        result_title.markdown("<h5 style='text-align: left; color: black;'>📋  最新识别结果：</h5>",
+                                    unsafe_allow_html=True)
+                        result_display.dataframe(self.Rec_df)  # 实时显示当前处理的图像结果
                     else:
-                        st.warning('')
+                        result_title.markdown("<h5 style='text-align: left; color: black;'>📋  最新识别结果：</h5>",
+                                              unsafe_allow_html=True)
+                        result_display.write('暂无数据')
+
+
 
         elif option == '手动上传图像':
             uploaded_files = st.file_uploader('📤 上传图像文件', type=['jpg', 'png', 'bmp'],
@@ -255,10 +292,6 @@ class ImgRec:
                             st.dataframe(df)  # 实时显示当前处理的图像结果
                             placeholder.success('✅ 识别完成！结果已保存到 recognized_results.csv')
 
-                    Rec_history_image(self.IMAGE_SAVE_DIR)
-                    csv_display(self.CSV_FILE_PATH)
-                    plot_confidences_from_csv(self.CSV_FILE_PATH)
-                    display_chart()
 
         # # 显示识别结果csv表格
         # csv_display(CSV_FILE_PATH)
@@ -365,12 +398,6 @@ class ImgRec:
                             st.dataframe(df)  # 实时显示当前处理的图像结果
                             placeholder.success(
                                 f'✅ 识别完成！结果已保存到 recognized_results.csv')
-
-                        Rec_history_image(self.IMAGE_SAVE_DIR)
-                        csv_display(self.CSV_FILE_PATH)
-                        plot_confidences_from_csv(self.CSV_FILE_PATH)
-                        display_chart()
-
             else:
                 st.write("❌ 项目文件夹中没有找到视频文件。")
 
@@ -382,40 +409,88 @@ class ImgRec:
 
 
 # 创建全局实例
-img_rec_instance = ImgRec()
+# img_rec_instance = ImgRec()
 
 
 def csv_display(CSV_FILE_PATH):
     # 添加标题
     st.markdown("<br><br>", unsafe_allow_html=True)
-    st.markdown("<h5 style='text-align: left; color: black;'>📄 当前 CSV 文件内容：</h5>", unsafe_allow_html=True)
+    st.markdown("<h5 style='text-align: left; color: black;'>📄 结果 CSV 文件内容：</h5>", unsafe_allow_html=True)
 
-    # 清除识别结果（CSV 表格）
-    if st.button('🗑️ 清除 CSV 文件内容'):
-        with st.spinner('正在清除 CSV 文件内容...'):
-            try:
-                ru.clear_csv(CSV_FILE_PATH)
-                #time.sleep(0.5)  # 增加 0.5 秒的延迟
-                st.success('✅ CSV 文件内容已清除')
-            except Exception as e:
-                st.error(f"❌ 清除 CSV 文件时出错: {e}")
+    # 自定义 CSS，设置表格缩放
+    st.markdown("""
+        <style>
+        .scaled-table {
+            transform: scale(0.8); /* 按比例缩放表格 */
+            transform-origin: top left; /* 缩放原点 */
+        }
+        </style>
+        """, unsafe_allow_html=True)
 
-    # 显示识别结果（CSV 表格）
-    if os.path.exists(CSV_FILE_PATH):
-        if ru.is_csv_empty(CSV_FILE_PATH):
-            st.warning('⚠️ 没有可用的识别数据')
-        else:
-            try:
+    # 创建两个列
+    col_download, col_clear = st.columns([0.5, 0.5])
+
+    # 处理下载 CSV 的逻辑
+    with col_download:
+        # 读取项目中的CSV文件
+        if os.path.exists(CSV_FILE_PATH):
+            if ru.is_csv_empty(CSV_FILE_PATH):  # 检查 CSV 是否为空
+                st.warning('⚠️ 没有可用的识别数据')
+            else:
+                # 读取CSV文件
                 df = pd.read_csv(CSV_FILE_PATH)
+                # 检查是否有“Recognized Text”和“Filename”列
+                if "Recognized Text" in df.columns and "Filename" in df.columns:
+                    # 假设 ru.generate_csv_from_column 是你自定义的函数，用来生成新的CSV文件
+                    result_df = ru.generate_csv_from_column(df, "Recognized Text")
+                    result_file_path = 'result/ImageRecognition_CSV/Output_steel_data.csv'
+                    # 将结果保存到指定文件夹
+                    result_df.to_csv(result_file_path, index=False)
+                    # 下载按钮，导出结果为 CSV 文件
+                    csv = result_df.to_csv(index=False).encode('utf-8')
+                    st.download_button(
+                        label="下载处理后的CSV文件",
+                        data=csv,
+                        file_name='Output_steel_data.csv',
+                        mime='text/csv',
+                    )
+
+                    # 使用缩小比例显示处理后的结果DataFrame
+                    st.markdown('<div class="scaled-table">', unsafe_allow_html=True)
+                    st.dataframe(result_df)
+                    st.markdown('</div>', unsafe_allow_html=True)
+                else:
+                    # 错误提示，如果必要的列不存在
+                    if "Recognized Text" not in df.columns:
+                        st.error("CSV文件中没有找到 'Recognized Text' 列")
+                    if "Filename" not in df.columns:
+                        st.error("CSV文件中没有找到 'Filename' 列")
+        else:
+            st.warning("⚠️ CSV 文件不存在。")
+
+    # 处理清除 CSV 内容的逻辑
+    with col_clear:
+
+        # 显示识别结果（CSV 表格）
+        if os.path.exists(CSV_FILE_PATH):
+            if ru.is_csv_empty(CSV_FILE_PATH):  # 检查 CSV 是否为空
+                st.warning('⚠️ 没有可用的识别数据')
+            else:
+                # 清除识别结果（CSV 表格）
+                if st.button('🗑️ 清除 CSV 文件内容'):
+                    with st.spinner('正在清除 CSV 文件内容...'):
+                        try:
+                            ru.clear_csv(CSV_FILE_PATH)  # 调用自定义的清除 CSV 文件内容的函数
+                            st.success('✅ CSV 文件内容已清除')
+                        except Exception as e:
+                            st.error(f"❌ 清除 CSV 文件时出错: {e}")
+                df = pd.read_csv(CSV_FILE_PATH)
+                # 使用缩小比例显示DataFrame
+                st.markdown('<div class="scaled-table">', unsafe_allow_html=True)
                 st.dataframe(df)
-            except pd.errors.EmptyDataError:
-                st.error('❌ CSV 文件为空或无法解析。')
-            except pd.errors.ParserError as e:
-                st.error(f"❌ 解析 CSV 文件时出错: {e}")
-            except Exception as e:
-                st.error(f"❌ 读取 CSV 文件时发生错误: {e}")
-    else:
-        st.warning('⚠️ CSV 文件不存在。')
+                st.markdown('</div>', unsafe_allow_html=True)
+        else:
+            st.warning('⚠️ CSV 文件不存在。')
 
 def Rec_history_image(IMAGE_SAVE_DIR):
     # 添加标题
@@ -498,11 +573,41 @@ def plot_confidences_from_csv(csv_file):
         xaxis_tickangle=-45  # 将 x 轴标签旋转以防止重叠
     )
 
-    fig2 = go.Figure(data=[
-        go.Bar(x=x_labels, y=accuracy, marker_color=bar_color, hovertemplate='%{x}, %{y:.2%}', name='')
-    ])
+    # 获取柱子的宽度，根据元素数量动态调整
+    def get_bar_width(num_positions):
+        if num_positions <= 3:
+            return 0.3
+        elif num_positions <= 6:
+            return 0.2
+        else:
+            return 0.1
+
+    bar_width = get_bar_width(len(x_labels))
+
+    # 创建组合图
+    fig2 = go.Figure()
+
+    # 添加柱状图
+    fig2.add_trace(go.Bar(
+        x=x_labels,
+        y=accuracy,
+        name='柱状图',
+        width=[bar_width] * len(x_labels),
+        marker_color='lightblue',  # 使用与之前相同的颜色
+        hovertemplate='%{x}, %{y:.2%}',
+    ))
+
+    # 添加折线图
+    fig2.add_trace(go.Scatter(
+        x=x_labels,
+        y=accuracy,
+        mode='lines+markers',
+        name='折线图'
+    ))
+
+    # 设置图表布局
     fig2.update_layout(
-        title="📈 每个文件及时间戳的准确度率",
+        title="📈 每个文件及时间戳的准确度率 - 组合图",
         xaxis_title="文件名 + 时间戳",
         yaxis_title="准确率",
         hoverlabel=dict(
@@ -510,13 +615,13 @@ def plot_confidences_from_csv(csv_file):
             font_color="black"
         ),
         xaxis_tickangle=-45,  # 将 x 轴标签旋转以防止重叠
-        yaxis = dict(tickformat=".2%")  # 将 y 轴刻度格式化为百分比
+        yaxis=dict(tickformat=".2%")  # 将 y 轴刻度格式化为百分比
     )
 
-
+    # 显示图表
+    st.plotly_chart(fig2, use_container_width=True)
     # 显示图表
     st.plotly_chart(fig1)
-    st.plotly_chart(fig2)
 
 
 
