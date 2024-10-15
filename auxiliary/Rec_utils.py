@@ -173,6 +173,9 @@ def generate_csv_from_column(df, column_name):
 
         # 将filename列也包含到结果中
         filename = row['Filename'] if 'Filename' in df.columns else None
+        entry_time = row['Entry Time'] if 'Entry Time' in df.columns else None
+        delivery_time = row['Delivery Time'] if 'Delivery Time' in df.columns else None
+        batch = row['Batch'] if 'Batch' in df.columns else None
 
         # 将提取到的数据添加到列表中
         result_data.append({
@@ -182,7 +185,10 @@ def generate_csv_from_column(df, column_name):
             "Standard": standard,
             "Thickness": thickness,
             "Width": width,
-            "Length": length
+            "Length": length,
+            "Entry Time": entry_time,
+            "Delivery Time": delivery_time,
+            "Batch": batch
         })
 
     # 转换为DataFrame
@@ -190,4 +196,3 @@ def generate_csv_from_column(df, column_name):
 
     # 返回结果的DataFrame
     return result_df
-

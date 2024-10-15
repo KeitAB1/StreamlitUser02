@@ -33,9 +33,17 @@ def main():
     st.markdown("<h1 style='text-align: center; color: black;'>🔍钢 板 编 码 识 别</h1>",
                 unsafe_allow_html=True)
     st.markdown("<br><br>", unsafe_allow_html=True)
+    # 使用 display_icon_with_header 函数替换部分的展示
+    col1, col2, col11 = st.columns([0.01, 0.25, 0.55])
+    with col1:
+        st.image("data/icon/icon02.jpg", width=20)
+    with col2:
+        # 选择识别模式：图像识别或视频识别
+        mode = st.selectbox('请选择识别模式（📷/🎥）', ['图像识别 📷', '视频识别 🎥'])
 
-    # 选择识别模式：图像识别或视频识别
-    mode = st.selectbox('请选择识别模式（📷/🎥）', ['图像识别 📷', '视频识别 🎥'])
+
+
+
 
     if mode == '图像识别 📷':
         #ir.img_rec_instance.Image_Recongnotion(IMAGE_SAVE_DIR, CSV_FILE_PATH)
@@ -53,6 +61,8 @@ def main():
         ir.csv_display(CSV_FILE_PATH)
         ir.plot_confidences_from_csv(CSV_FILE_PATH)
         #ir.display_chart()
+    else:
+        st.write('详细数据已隐藏，可在侧边栏打开')
 
     # ir.img_rec_instance.mask_Settings()
     # ir.Rec_history_image(IMAGE_SAVE_DIR)

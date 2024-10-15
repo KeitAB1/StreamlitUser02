@@ -1,17 +1,17 @@
 import os
-from datetime import datetime
+import cv2
 import time
-import streamlit as st
+import shutil
+import imagehash
+import numpy as np
 import pandas as pd
 from PIL import Image
-import cv2
-import numpy as np
-import imagehash
-import shutil
-import matplotlib.pyplot as plt
-from auxiliary import Rec_utils as ru
-import plotly.express as px
+import streamlit as st
 import plotly.graph_objects as go
+from auxiliary import Rec_utils as ru
+from datetime import datetime, timedelta
+import matplotlib.pyplot as plt
+import plotly.express as px
 import plotly.io as pio
 
 class ImgRec:
@@ -111,7 +111,7 @@ class ImgRec:
         recognition_text = ru.process_steel_code(recognition_text)
         average_confidence = total_confidence / len(results) if results else 0.0
 
-        accuracy = -1
+        accuracy = 0
         if correct_text is not None:
             # 计算准确率
             accuracy = calculate_accuracy(recognition_text, correct_text) if correct_text else None
@@ -123,8 +123,11 @@ class ImgRec:
         # 返回附带准确率的结果
         return file_name, recognition_text, average_confidence, accuracy, timestamp
 
+    import os
+    from datetime import datetime, timedelta
+    from PIL import Image
 
-    #文件夹图片识别
+    #文件夹图像识别
     def process_images_from_folder(self, folder_path, progress_placeholder, IMAGE_SAVE_DIR, table_data=None):
         """对文件夹中的所有图像进行OCR识别并返回结果，加入图片校正和调整过程"""
         data = []
@@ -136,6 +139,12 @@ class ImgRec:
 
         # 清空置信度列表
         self.clear_confidences()
+        self.Batch += 1
+
+        # 获取当前时间和交付时间
+        entry_time = datetime.now().strftime('%Y-%m-%d')  # 当前日期
+        delivery_time = (datetime.now() + timedelta(days=30)).strftime('%Y-%m-%d')  # 30天后的日期
+        Batch = 'Q' + str(self.Batch)
 
         for idx, file_name in enumerate(image_files):
             image_path = os.path.join(folder_path, file_name)
@@ -147,17 +156,19 @@ class ImgRec:
                 correct_text = table_data.loc[table_data['Filename'] == file_name, 'Recognized Text'].values[0]
 
             # 识别图像并计算准确率
-            file_name, recognition_text, average_confidence, accuracy, timestamp = self.Rec_fun(image, file_name, IMAGE_SAVE_DIR,
-                                                                                     correct_text)
+            file_name, recognition_text, average_confidence, accuracy, timestamp = self.Rec_fun(image, file_name, IMAGE_SAVE_DIR, correct_text)
             self.average_confidences.append(average_confidence)
+
+            # 将数据追加到data中
             data.append(
                 {"Filename": file_name, "Recognized Text": recognition_text, "Average Confidence": average_confidence,
-                 "Accuracy": accuracy, "Timestamp": timestamp})
+                 "Accuracy": accuracy, "Timestamp": timestamp,
+                 "Entry Time": entry_time, "Delivery Time": delivery_time, "Batch": Batch})
 
             # 更新进度条
             progress_placeholder.progress((idx + 1) / total_images)
 
-        #plot_confidences(self.average_confidences)
+        # plot_confidences(self.average_confidences)
         return data, total_images
 
     # 上传图片识别
@@ -171,14 +182,24 @@ class ImgRec:
 
         # 遍历每个上传的文件
         self.clear_confidences()
+        self.Batch += 1
+
+        # 获取当前时间和交付时间
+        entry_time = datetime.now().strftime('%Y-%m-%d')  # 当前日期
+        delivery_time = (datetime.now() + timedelta(days=30)).strftime('%Y-%m-%d')  # 30天后的日期
+
         for idx, uploaded_file in enumerate(uploaded_files):
             image = Image.open(uploaded_file)  # 打开图片
             # 识别图像并计算准确率
             file_name, recognition_text, average_confidence, accuracy, timestamp = self.Rec_fun(image, uploaded_file.name, IMAGE_SAVE_DIR)
             self.average_confidences.append(average_confidence)
+
+            # 将数据追加到data中
             data.append(
                 {"Filename": file_name, "Recognized Text": recognition_text, "Average Confidence": average_confidence,
-                 "Accuracy": accuracy, "Timestamp": timestamp})
+                 "Accuracy": accuracy, "Timestamp": timestamp,
+                 "Entry Time": entry_time, "Delivery Time": delivery_time, "Batch": self.Batch})
+
             # 更新进度条
             progress_placeholder.progress((idx + 1) / total_files)
         return data  # 返回识别数据列表
@@ -189,10 +210,11 @@ class ImgRec:
         st.write("请选择图像输入方式 📥")
 
         # 选择图像输入方式
-        option = st.selectbox('🔍 请选择输入方式', ['测试数据集', '手动上传图像'], key="key_for_ImgRec_kinds")
+        op1, op2 = '测试数据集', '手动上传图像'
+        option = st.selectbox('🔍 请选择输入方式', [op1, op2], key="key_for_ImgRec_kinds")
 
-        if option == '从项目文件夹中选择图像':
-            col_folder, col_file = st.columns([0.5, 0.5])
+        if option == op1:
+            col_folder, col_file = st.columns([0.5, 0.2])
             base_folder_path = 'data/plate_img'
             subfolders = [f for f in os.listdir(base_folder_path) if
                           os.path.isdir(os.path.join(base_folder_path, f)) and f.startswith('Image_src')]
@@ -204,10 +226,10 @@ class ImgRec:
                 folder_path = os.path.join(base_folder_path, selected_subfolder)
                 if os.path.exists(folder_path):
                     # 加载table.csv
-                    table_path = os.path.join(folder_path, "table.csv")
+                    table_path = os.path.join(folder_path, "label.csv")
                     table_data = None
                     if os.path.exists(table_path):
-                        #table_data = pd.read_csv("data/plate_img/Image_src03/table.csv")  # 确保加载正确
+                        #table_data = pd.read_csv("data/plate_img/Image_src03/label.csv")  # 确保加载正确
                         table_data = pd.read_csv(table_path)  # 确保加载正确
                     #显示文件夹中图片
                     image_files = os.listdir(folder_path)
@@ -274,10 +296,12 @@ class ImgRec:
 
 
 
-        elif option == '手动上传图像':
+        elif option == op2:
             uploaded_files = st.file_uploader('📤 上传图像文件', type=['jpg', 'png', 'bmp'],
                                               accept_multiple_files=True)
             if uploaded_files:
+                result_title = st.empty()
+                result_display = st.empty()
                 if st.button('🚀 开始识别'):
                     # 使用 st.empty() 创建一个占位符
                     placeholder = st.empty()
@@ -291,6 +315,15 @@ class ImgRec:
                             df = pd.DataFrame(data)
                             st.dataframe(df)  # 实时显示当前处理的图像结果
                             placeholder.success('✅ 识别完成！结果已保存到 recognized_results.csv')
+                        progress_placeholder.empty()
+                if self.Rec_df is not None:
+                    result_title.markdown("<h5 style='text-align: left; color: black;'>📋  最新识别结果：</h5>",
+                                          unsafe_allow_html=True)
+                    result_display.dataframe(self.Rec_df)  # 实时显示当前处理的图像结果
+                else:
+                    result_title.markdown("<h5 style='text-align: left; color: black;'>📋  最新识别结果：</h5>",
+                                          unsafe_allow_html=True)
+                    result_display.write('暂无数据')
 
 
         # # 显示识别结果csv表格
@@ -362,28 +395,37 @@ class ImgRec:
 
 
         st.header("🎥 视频编码识别")
-        st.write("请选择图像输入方式 📁")
+        st.write("请选择视频输入方式 📁")
 
-        # 确定保存间隔
-        frame_interval = st.number_input("⏳ 每隔多少帧保存一次图像", min_value=1, value=20, step=1)
 
         option = st.selectbox('📥 请选择输入方式', ['项目文件夹中的视频'], key="key_for_VidRec_kinds")
+        col_file,col_frame = st.columns([0.7, 0.3])
+
 
         if option == '项目文件夹中的视频':
             video_folder = 'data/plate_video'
             videos = [f for f in os.listdir(video_folder) if f.endswith(('.mp4', '.avi'))]
 
             if videos:
-                selected_video = st.selectbox('🎬 请选择视频文件', videos, key="key_for_VidRec_file")
+                select_video = ''
+                frame_interval = 1
+                with col_file:
+                    selected_video = st.selectbox('🎬 请选择视频文件', videos, key="key_for_VidRec_file")
+                with col_frame:
+                    # 确定保存间隔
+                    frame_interval = st.number_input("⏳ 识别帧数", min_value=1, value=20, step=1)
                 # 使用 st.empty() 创建一个占位符
                 placeholder = st.empty()
+                result_title = st.empty()
+                result_display = st.empty()
                 if st.button("🚀 开始识别"):
                     # 加载前显示信息框
                     placeholder.info('正在识别视频中的钢板编号...')
                     with st.spinner('加载中，请稍候...'):
                         ru.ensure_directory_exists(video_folder)
                         video_path = os.path.join(video_folder, selected_video)
-                        self.extract_unique_frames_from_video(frame_interval ,video_path, frames_cache_folder, final_frames_folder)
+                        self.extract_unique_frames_from_video(frame_interval, video_path, frames_cache_folder,
+                                                              final_frames_folder)
 
                         progress_placeholder = st.empty()
                         # 进行识别
@@ -395,9 +437,17 @@ class ImgRec:
                         elif data:
                             ru.append_to_csv(data, CSV_FILE_PATH)
                             df = pd.DataFrame(data)
-                            st.dataframe(df)  # 实时显示当前处理的图像结果
                             placeholder.success(
                                 f'✅ 识别完成！结果已保存到 recognized_results.csv')
+                        progress_placeholder.empty()
+                if self.Rec_df is not None:
+                    result_title.markdown("<h5 style='text-align: left; color: black;'>📋  最新识别结果：</h5>",
+                                          unsafe_allow_html=True)
+                    result_display.dataframe(self.Rec_df)  # 实时显示当前处理的图像结果
+                else:
+                    result_title.markdown("<h5 style='text-align: left; color: black;'>📋  最新识别结果：</h5>",
+                                          unsafe_allow_html=True)
+                    result_display.write('暂无数据')
             else:
                 st.write("❌ 项目文件夹中没有找到视频文件。")
 
@@ -431,6 +481,34 @@ def csv_display(CSV_FILE_PATH):
     col_download, col_clear = st.columns([0.5, 0.5])
 
     # 处理下载 CSV 的逻辑
+
+    # 处理清除 CSV 内容的逻辑
+    with col_clear:
+
+        # 显示识别结果（CSV 表格）
+        if os.path.exists(CSV_FILE_PATH):
+            if ru.is_csv_empty(CSV_FILE_PATH):  # 检查 CSV 是否为空
+                st.warning('⚠️ 没有可用的识别数据')
+            else:
+                # 清除识别结果（CSV 表格）
+                if st.button('🗑️ 清除 CSV 文件内容'):
+                    with st.spinner('正在清除 CSV 文件内容...'):
+                        try:
+                            ru.clear_csv(CSV_FILE_PATH)  # 调用自定义的清除 CSV 文件内容的函数
+                            st.success('✅ CSV 文件内容已清除')
+                        except Exception as e:
+                            st.error(f"❌ 清除 CSV 文件时出错: {e}")
+                if not ru.is_csv_empty(CSV_FILE_PATH):
+                    df = pd.read_csv(CSV_FILE_PATH)
+                    # 使用缩小比例显示DataFrame
+                    st.markdown('<div class="scaled-table">', unsafe_allow_html=True)
+                    st.dataframe(df)
+                    st.markdown('</div>', unsafe_allow_html=True)
+                else:
+                    st.warning('⚠️ 没有可用的识别数据')
+        else:
+            st.warning('⚠️ CSV 文件不存在。')
+
     with col_download:
         # 读取项目中的CSV文件
         if os.path.exists(CSV_FILE_PATH):
@@ -440,7 +518,7 @@ def csv_display(CSV_FILE_PATH):
                 # 读取CSV文件
                 df = pd.read_csv(CSV_FILE_PATH)
                 # 检查是否有“Recognized Text”和“Filename”列
-                if "Recognized Text" in df.columns and "Filename" in df.columns:
+                if "Recognized Text" in df.columns and "Filename" in df.columns and "Entry Time" in df.columns and "Delivery Time" in df.columns and "Batch" in df.columns:
                     # 假设 ru.generate_csv_from_column 是你自定义的函数，用来生成新的CSV文件
                     result_df = ru.generate_csv_from_column(df, "Recognized Text")
                     result_file_path = 'result/ImageRecognition_CSV/Output_steel_data.csv'
@@ -467,30 +545,6 @@ def csv_display(CSV_FILE_PATH):
                         st.error("CSV文件中没有找到 'Filename' 列")
         else:
             st.warning("⚠️ CSV 文件不存在。")
-
-    # 处理清除 CSV 内容的逻辑
-    with col_clear:
-
-        # 显示识别结果（CSV 表格）
-        if os.path.exists(CSV_FILE_PATH):
-            if ru.is_csv_empty(CSV_FILE_PATH):  # 检查 CSV 是否为空
-                st.warning('⚠️ 没有可用的识别数据')
-            else:
-                # 清除识别结果（CSV 表格）
-                if st.button('🗑️ 清除 CSV 文件内容'):
-                    with st.spinner('正在清除 CSV 文件内容...'):
-                        try:
-                            ru.clear_csv(CSV_FILE_PATH)  # 调用自定义的清除 CSV 文件内容的函数
-                            st.success('✅ CSV 文件内容已清除')
-                        except Exception as e:
-                            st.error(f"❌ 清除 CSV 文件时出错: {e}")
-                df = pd.read_csv(CSV_FILE_PATH)
-                # 使用缩小比例显示DataFrame
-                st.markdown('<div class="scaled-table">', unsafe_allow_html=True)
-                st.dataframe(df)
-                st.markdown('</div>', unsafe_allow_html=True)
-        else:
-            st.warning('⚠️ CSV 文件不存在。')
 
 def Rec_history_image(IMAGE_SAVE_DIR):
     # 添加标题
@@ -734,6 +788,4 @@ def calculate_accuracy(recognized_text, correct_text):
     # 准确率 = 匹配字符数 / 正确编码的总长度
     accuracy = match_count / len(correct_text) if len(correct_text) > 0 else 0
     return accuracy
-
-
 
