@@ -11,13 +11,15 @@ def load_ocr_model():
     # 使用 st.spinner 来显示加载提示
     with st.spinner("模型加载中......"):
         reader = easyocr.Reader(['en'], model_storage_directory="data/easyorc_models")
-    return reader
+        imageRec = ir.ImgRec()
+        imageRec.set_reader(reader)
+    return reader,imageRec
 
 # 加载 OCR 模型
-reader = load_ocr_model()
+reader, imageRec  = load_ocr_model()
 
 # 使用 Img_Rec.py 中的全局实例设置模型
-ir.img_rec_instance.set_reader(reader)
+# ir.img_rec_instance.set_reader(reader)
 
 # 定义图片和CSV文件保存路径
 IMAGE_SAVE_DIR = 'result/ImageRecognition_Img'
@@ -36,10 +38,21 @@ def main():
     mode = st.selectbox('请选择识别模式（📷/🎥）', ['图像识别 📷', '视频识别 🎥'])
 
     if mode == '图像识别 📷':
-        ir.img_rec_instance.Image_Recongnotion(IMAGE_SAVE_DIR, CSV_FILE_PATH)
-
+        #ir.img_rec_instance.Image_Recongnotion(IMAGE_SAVE_DIR, CSV_FILE_PATH)
+        imageRec.Image_Recongnotion(IMAGE_SAVE_DIR, CSV_FILE_PATH)
     elif mode == '视频识别 🎥':
-        ir.img_rec_instance.Video_Recognition(IMAGE_SAVE_DIR,CSV_FILE_PATH)
+        #ir.img_rec_instance.Video_Recognition(IMAGE_SAVE_DIR,CSV_FILE_PATH)
+        imageRec.Video_Recognition(IMAGE_SAVE_DIR,CSV_FILE_PATH)
+
+
+    # 在侧边栏添加一个复选框
+    toggle_state = st.sidebar.checkbox("显示详细数据")  # 复选框，类似开关
+    # 根据复选框状态显示不同的内容
+    if toggle_state:
+        #ir.Rec_history_image(IMAGE_SAVE_DIR)
+        ir.csv_display(CSV_FILE_PATH)
+        ir.plot_confidences_from_csv(CSV_FILE_PATH)
+        #ir.display_chart()
 
     # ir.img_rec_instance.mask_Settings()
     # ir.Rec_history_image(IMAGE_SAVE_DIR)
