@@ -33,7 +33,7 @@ st.title("⚙ 智能钢板堆垛系统")
 display_icon_with_header("data/icon/icon01.jpg", "数据导入", font_size="24px", icon_size="20px")
 
 # 使用 display_icon_with_header 函数替换部分的展示
-col3, col4, col11 = st.columns([0.01, 0.45, 0.55])
+col3, col4, col11 = st.columns([0.01, 0.25, 0.55])
 with col3:
     st.image("data/icon/icon02.jpg", width=20)
 with col4:
@@ -56,25 +56,32 @@ if data_choice == "上传自定义数据集":
     else:
         st.warning("请上传数据集以继续。")
 elif data_choice == "使用系统数据集":
-    col5, col6, col12 = st.columns([0.01, 0.44, 0.55])
-    with col5:
+    # 创建两列布局，分别放置选择数据集和选择优化模式
+    col7, col5, col8, col6, col9 = st.columns([0.01,0.2,0.01,0.1, 0.3])
+
+    with col7:
         st.image("data/icon/icon02.jpg", width=20)
-    with col12:
-        st.image("data/icon/img.png", width=20)
-    with col6:
+    # 左侧列：选择系统数据集
+    with col5:
         available_datasets = [f.replace('.csv', '') for f in os.listdir(system_data_dir) if f.endswith('.csv')]
-        selected_dataset = st.selectbox("系统数据集", [""] + available_datasets)
+        selected_dataset = st.selectbox("选择系统数据集", [""] + available_datasets)
         if selected_dataset:
             dataset_name = selected_dataset
             system_dataset_path = os.path.join(system_data_dir, f"{selected_dataset}.csv")
             df = pd.read_csv(system_dataset_path)
+    with col8:
+        st.image("data/icon/icon02.jpg", width=20)
+    # 右侧列：选择优化模式
+    with col6:
+        available_datasets = [f.replace('.csv', '') for f in os.listdir(system_data_dir) if f.endswith('.csv')]
+        optimization_mode = st.selectbox("选择优化模式", ["普通优化", "深度优化"])
 
-# 添加勾选按钮和 Start Work 按钮放在一行
-col7, col8 = st.columns([0.15, 0.85])
-with col7:
-    deep_optimization = st.checkbox("启用深度优化")
-with col8:
-    start_work = st.button("Start Work")
+
+
+start_work = st.button("Start Work")
+
+
+
 
 # 优化参数配置
 initial_temperature = 1000.0
@@ -162,7 +169,7 @@ if df is not None:
     }
 
     if start_work:
-        if deep_optimization:
+        if optimization_mode == "深度优化":  # 判断用户是否选择深度优化模式
             # 启用深度优化，运行多个优化算法并选择最佳方案
             optimizer_runner = OptimizerRunner(algorithms_params, df, DEFAULT_AREA_POSITIONS, output_dir_base)
             optimizer_runner.run_optimization()

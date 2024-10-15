@@ -1,10 +1,8 @@
-# eda_optimizer.py
 import streamlit as st
 import numpy as np
 import pandas as pd
 import time
 import os
-import plotly.graph_objects as go
 from utils import save_convergence_history, save_performance_metrics
 from optimization_utils import apply_adaptive_eda
 
@@ -32,15 +30,12 @@ class EDA_with_Batch:
         self.use_adaptive = use_adaptive  # 是否使用自适应参数
         self.adaptive_param_data = []  # 用于保存自适应参数
 
-        # Streamlit 占位符
-        self.convergence_plot_placeholder = st.empty()
-        self.adaptive_param_plot_placeholder = st.empty()
-
     def optimize(self):
-        # 提供优化开始信息并显示运行时加载提示
-        st.info("EDA Optimization started...")
+        # 添加st.spinner，显示正在进行的优化操作
         with st.spinner("Running EDA Optimization..."):
             self.start_time = time.time()  # 记录优化开始时间
+
+            progress_bar = st.progress(0)
 
             for iteration in range(self.max_iter):
                 # 估计概率分布
@@ -69,14 +64,15 @@ class EDA_with_Batch:
                         self.mutation_rate, self.crossover_rate, self.best_score, self.use_adaptive)
                     self.record_adaptive_params()
 
-                    # 每代更新自适应参数调节图
-                    self.update_adaptive_param_plot()
-
                 # 保存收敛数据
                 self.convergence_data.append([iteration + 1, self.best_score])
-                self.update_convergence_plot(iteration + 1)
 
-                print(f'Iteration {iteration + 1}/{self.max_iter}, Best Score: {self.best_score}')
+                # 更新进度条
+                progress_percentage = (iteration + 1) / self.max_iter
+                progress_bar.progress(progress_percentage)
+
+            # 清空进度条
+            progress_bar.empty()
 
             # 计算优化结束时间
             time_elapsed = time.time() - self.start_time
@@ -125,41 +121,11 @@ class EDA_with_Batch:
 
         return np.sum(score)  # 确保返回标量值
 
-    def update_convergence_plot(self, current_iteration):
-        # 动态更新收敛曲线
-        iteration_data = [x[0] for x in self.convergence_data]
-        score_data = [x[1] for x in self.convergence_data]
-
-        # 使用 Plotly 绘制收敛曲线
-        fig = go.Figure()
-        fig.add_trace(go.Scatter(x=iteration_data, y=score_data, mode='lines+markers', name='Best Score'))
-        fig.update_layout(title=f'Convergence Curve - Iteration {current_iteration}',
-                          xaxis_title='Iterations', yaxis_title='Best Score')
-
-        self.convergence_plot_placeholder.plotly_chart(fig, use_container_width=True)
-
     def record_adaptive_params(self):
         self.adaptive_param_data.append({
             'mutation_rate': self.mutation_rate,
             'crossover_rate': self.crossover_rate
         })
-
-    def update_adaptive_param_plot(self):
-        # 绘制自适应参数变化图
-        iteration_data = list(range(1, len(self.adaptive_param_data) + 1))
-        mutation_rate_data = [x['mutation_rate'] for x in self.adaptive_param_data]
-        crossover_rate_data = [x['crossover_rate'] for x in self.adaptive_param_data]
-
-        fig = go.Figure()
-        fig.add_trace(
-            go.Scatter(x=iteration_data, y=mutation_rate_data, mode='lines+markers', name='Mutation Rate'))
-        fig.add_trace(
-            go.Scatter(x=iteration_data, y=crossover_rate_data, mode='lines+markers', name='Crossover Rate'))
-
-        fig.update_layout(title="Adaptive Parameter Changes", xaxis_title="Iterations",
-                          yaxis_title="Parameter Values")
-
-        self.adaptive_param_plot_placeholder.plotly_chart(fig, use_container_width=True)
 
     def save_performance_metrics(self, time_elapsed):
         iterations = len(self.convergence_data)

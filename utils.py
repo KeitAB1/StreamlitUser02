@@ -121,73 +121,37 @@ def save_and_visualize_results(optimizer, df, area_positions, output_dir_base, a
 
     return output_file_plates_with_batch
 
-def generate_stacking_distribution_statistics(df, area_positions, output_dir_base, algorithm_name):
-    height_dict = {}
-    plate_count_dict = {}
 
-    # 初始化每个区域的高度和钢板计数
-    for area in area_positions.keys():
-        for pos in area_positions[area]:
-            height_dict[(area, pos[0], pos[1])] = 0.0
-            plate_count_dict[(area, pos[0], pos[1])] = 0
 
-    def is_valid_position(area, x, y):
-        return (area in area_positions) and ((int(x), int(y)) in area_positions[area])
+# 展示垛位分布统计表
+def show_stacking_distribution_statistics(result_df, algorithm_name, output_dir_base):
+    # 先创建保存路径
+    final_stack_height_dir = os.path.join(output_dir_base, 'final_stack_distribution_height')
+    os.makedirs(final_stack_height_dir, exist_ok=True)
+    final_stack_distribution_path = os.path.join(final_stack_height_dir,
+                                                 f'final_stack_distribution_height_{algorithm_name}.csv')
+    result_df.to_csv(final_stack_distribution_path, index=False)
 
-    for index, row in df.iterrows():
-        area = row['Final Area']
-        x = row['Final X']
-        y = row['Final Y']
-        stacking_height = row['Stacking Height']
-
-        x = int(x)
-        y = int(y)
-
-        if is_valid_position(area, x, y):
-            height_dict[(area, x, y)] = stacking_height
-            plate_count_dict[(area, x, y)] += 1
-
-    results = []
-    all_positions = []
-    all_heights = []
-
-    for area, positions in area_positions.items():
-        total_plates = 0
-        heights = []
-
-        for pos in positions:
-            height = height_dict[(area, pos[0], pos[1])]
-            heights.append(height)
-            all_positions.append(f"{area}-{pos[0]}-{pos[1]}")
-            all_heights.append(height)
-            total_plates += plate_count_dict[(area, pos[0], pos[1])]
-
-        average_height = np.mean(heights)
-        result_entry = {'Area': area, 'Total Plates': total_plates, 'Average Height': average_height}
-        for i, pos in enumerate(positions):
-            result_entry[f'Position {i + 1}'] = height_dict[(area, pos[0], pos[1])]
-
-        results.append(result_entry)
-
-    result_df = pd.DataFrame(results)
-
-    # 使用 display_icon_with_header 函数替换现有的图标和标题显示逻辑
-    display_icon_with_header("data/icon/icon01.jpg", "垛位分布统计表", font_size="24px", icon_size="20px")
+    # 显示表格
     st.dataframe(result_df)
 
-    col3, col4, col = st.columns([0.01, 0.44, 0.55])
+    return final_stack_distribution_path
+
+# 绘制堆垛高度分布图
+def show_stacking_height_distribution_chart(all_positions, all_heights, algorithm_name):
+    # 使用 display_icon_with_header 函数替换部分的展示
+    col3, col4, col11 = st.columns([0.01, 0.25, 0.55])
     with col3:
         st.image("data/icon/icon02.jpg", width=20)
-    with col:
-        st.image("data/icon/img.png", width=20)
     with col4:
-        # 为 selectbox 添加唯一的 key
-        chart_type = st.selectbox("选择图表类型", ["组合图 (柱状图+折线图)", "柱状图", "折线图", "面积图"], key=f"chart_selectbox_{algorithm_name}")
+        # 选择图表类型
+        chart_type = st.selectbox("选择图表类型", ["组合图 (柱状图+折线图)", "柱状图", "折线图", "面积图"],
+                                  key=f"chart_selectbox_{algorithm_name}")
 
     def get_bar_width(num_positions):
-        if (num_positions <= 3):
+        if num_positions <= 3:
             return 0.3
-        elif (num_positions <= 6):
+        elif num_positions <= 6:
             return 0.2
         else:
             return 0.1
@@ -238,14 +202,59 @@ def generate_stacking_distribution_statistics(df, area_positions, output_dir_bas
     # 显示图表
     st.plotly_chart(fig, use_container_width=True)
 
-    # 保存最终的统计数据到文件
-    final_stack_height_dir = os.path.join(output_dir_base, 'final_stack_distribution_height')
-    os.makedirs(final_stack_height_dir, exist_ok=True)
-    final_stack_distribution_path = os.path.join(final_stack_height_dir,
-                                                 f'final_stack_distribution_height_{algorithm_name}.csv')
-    result_df.to_csv(final_stack_distribution_path, index=False)
+# 修改 generate_stacking_distribution_statistics，将计算逻辑与展示逻辑分离
+def generate_stacking_distribution_statistics(df, area_positions, output_dir_base, algorithm_name):
+    height_dict = {}
+    plate_count_dict = {}
 
-    return final_stack_distribution_path
+    # 初始化每个区域的高度和钢板计数
+    for area in area_positions.keys():
+        for pos in area_positions[area]:
+            height_dict[(area, pos[0], pos[1])] = 0.0
+            plate_count_dict[(area, pos[0], pos[1])] = 0
+
+    def is_valid_position(area, x, y):
+        return (area in area_positions) and ((int(x), int(y)) in area_positions[area])
+
+    for index, row in df.iterrows():
+        area = row['Final Area']
+        x = row['Final X']
+        y = row['Final Y']
+        stacking_height = row['Stacking Height']
+
+        x = int(x)
+        y = int(y)
+
+        if is_valid_position(area, x, y):
+            height_dict[(area, x, y)] = stacking_height
+            plate_count_dict[(area, x, y)] += 1
+
+    results = []
+    all_positions = []
+    all_heights = []
+
+    for area, positions in area_positions.items():
+        total_plates = 0
+        heights = []
+
+        for pos in positions:
+            height = height_dict[(area, pos[0], pos[1])]
+            heights.append(height)
+            all_positions.append(f"{area}-{pos[0]}-{pos[1]}")
+            all_heights.append(height)
+            total_plates += plate_count_dict[(area, pos[0], pos[1])]
+
+        average_height = np.mean(heights)
+        result_entry = {'Area': area, 'Total Plates': total_plates, 'Average Height': average_height}
+        for i, pos in enumerate(positions):
+            result_entry[f'Position {i + 1}'] = height_dict[(area, pos[0], pos[1])]
+
+        results.append(result_entry)
+
+    result_df = pd.DataFrame(results)
+
+    return result_df, all_positions, all_heights
+
 
 
 def add_download_button(file_path, algorithm_name):
