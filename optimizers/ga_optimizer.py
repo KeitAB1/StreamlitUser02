@@ -8,14 +8,12 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 import streamlit as st
 from utils import save_convergence_history, save_performance_metrics
-from optimization_utils import evaluate_parallel, evaluate_with_cache
-from optimization_utils import apply_adaptive_sa
-
-
-
+from optimization_utils import evaluate_parallel, evaluate_with_cache, run_distributed_optimization
+from optimization_utils import apply_adaptive_pso, apply_adaptive_sa, apply_adaptive_ga, apply_adaptive_coea, apply_adaptive_eda
+from concurrent.futures import ThreadPoolExecutor
 
 class GA_with_Batch:
-    cache = {}  # 适应度缓存，避免重复计算
+    cache = {}  # 缓存适应度结果，避免重复计算
 
     def __init__(self, population_size, mutation_rate, crossover_rate, generations, lambda_1, lambda_2, lambda_3,
                  lambda_4, num_positions, dataset_name, objectives, plates, delivery_times, batches, use_adaptive):
@@ -29,7 +27,7 @@ class GA_with_Batch:
         self.lambda_4 = lambda_4
         self.num_positions = num_positions
         self.population = [np.random.randint(0, num_positions, size=len(plates)) for _ in range(population_size)]
-        self.best_individual = None
+        self.best_position = None  # 修改为 best_position
         self.best_score = np.inf
         self.worst_score = -np.inf
         self.best_improvement = np.inf
@@ -39,17 +37,13 @@ class GA_with_Batch:
         self.stable_iterations = 0
         self.dataset_name = dataset_name
         self.start_time = None  # 用于记录优化过程的时间
-        self.objectives = objectives  # OptimizationObjectives 实例
+        self.objectives = objectives  # 优化目标实例
         self.plates = plates
         self.delivery_times = delivery_times
         self.batches = batches
         self.heights = np.zeros(num_positions)
         self.use_adaptive = use_adaptive
         self.adaptive_param_data = []
-
-        # Streamlit 占位符
-        self.convergence_plot_placeholder = st.empty()
-        self.adaptive_param_plot_placeholder = st.empty()
 
     def fitness(self, individual):
         individual_tuple = tuple(individual)
@@ -96,9 +90,11 @@ class GA_with_Batch:
         return individual
 
     def optimize(self):
-        st.info("GA Optimization started...")  # 提供优化开始信息
+        # st.info("GA Optimization started...")  # 提供优化开始信息
         with st.spinner("Running GA Optimization..."):  # 提供运行时加载提示
             self.start_time = time.time()  # 记录开始时间
+
+            progress_bar = st.progress(0)  # 初始化进度条
 
             for generation in range(self.generations):
                 new_population = []
@@ -128,7 +124,7 @@ class GA_with_Batch:
 
                 if best_score_gen < self.best_score:
                     self.best_score = best_score_gen
-                    self.best_individual = best_individual_gen.copy()
+                    self.best_position = best_individual_gen.copy()  # 这里使用 best_position
                     self.stable_iterations = 0  # 重置稳定迭代次数
                 else:
                     self.stable_iterations += 1  # 计数稳定迭代次数
@@ -140,14 +136,19 @@ class GA_with_Batch:
                     )
                     self.record_adaptive_params()
 
-                    # 每代更新自适应参数调节图
-                    self.update_adaptive_param_plot()
-
+                # 记录收敛数据
                 self.convergence_data.append([generation + 1, self.best_score])
-                self.update_convergence_plot(generation + 1)
 
-                print(f'Generation {generation + 1}/{self.generations}, Best Score: {self.best_score}')
+                # 更新进度条
+                progress_percentage = (generation + 1) / self.generations
+                progress_bar.progress(progress_percentage)
 
+                # print(f'Generation {generation + 1}/{self.generations}, Best Score: {self.best_score}')
+
+            # 优化结束后清除进度条
+            progress_bar.empty()
+
+            # 保存收敛历史数据
             time_elapsed = time.time() - self.start_time  # 计算总耗时
             iterations = len(self.convergence_data)
             convergence_rate_value = (self.convergence_data[-1][1] - self.convergence_data[0][1]) / iterations
@@ -168,64 +169,12 @@ class GA_with_Batch:
 
             self.save_metrics(metrics)
 
-            # 优化结束后，保存历史收敛数据
             history_data_dir = os.path.join("result/History_ConvergenceData", self.dataset_name, "GA")
             save_convergence_history(self.convergence_data, "GA", self.dataset_name, history_data_dir)
 
     def record_adaptive_params(self):
         self.adaptive_param_data.append(
             {'mutation_rate': self.mutation_rate, 'crossover_rate': self.crossover_rate})
-
-    def update_convergence_plot(self, current_generation):
-        iteration_data = [x[0] for x in self.convergence_data]
-        score_data = [x[1] for x in self.convergence_data]
-
-        # 创建收敛曲线
-        fig = make_subplots(specs=[[{"secondary_y": True}]])
-        fig.add_trace(
-            go.Scatter(x=iteration_data, y=score_data, mode='lines+markers', name='Best Score'),
-            secondary_y=False
-        )
-
-        # 设置图表布局
-        fig.update_layout(
-            title=f'Convergence Curve - Generation {current_generation}, Best Score {self.best_score}',
-            xaxis_title='Generations',
-            legend=dict(x=0.75, y=1)
-        )
-
-        fig.update_yaxes(title_text="Best Score", secondary_y=False)
-
-        # 使用 Streamlit 展示 Plotly 图表
-        self.convergence_plot_placeholder.plotly_chart(fig, use_container_width=True)
-
-        # 保存收敛图
-        save_convergence_plot(self.convergence_data, current_generation, self.best_score, "GA", self.dataset_name)
-
-    def update_adaptive_param_plot(self):
-        iteration_data = list(range(1, len(self.adaptive_param_data) + 1))
-        mutation_rate_data = [x['mutation_rate'] for x in self.adaptive_param_data]
-        crossover_rate_data = [x['crossover_rate'] for x in self.adaptive_param_data]
-
-        # 创建参数变化曲线
-        fig = go.Figure()
-        fig.add_trace(
-            go.Scatter(x=iteration_data, y=mutation_rate_data, mode='lines+markers', name='Mutation Rate')
-        )
-        fig.add_trace(
-            go.Scatter(x=iteration_data, y=crossover_rate_data, mode='lines+markers', name='Crossover Rate')
-        )
-
-        # 设置图表布局
-        fig.update_layout(
-            title="Adaptive Parameter Changes",
-            xaxis_title="Generations",
-            yaxis_title="Parameter Values",
-            legend=dict(x=0.75, y=1)
-        )
-
-        # 使用 Streamlit 展示 Plotly 图表
-        self.adaptive_param_plot_placeholder.plotly_chart(fig, use_container_width=True)
 
     def save_metrics(self, metrics):
         dataset_folder = f"result/comparison_performance/{self.dataset_name.split('.')[0]}"
@@ -235,3 +184,4 @@ class GA_with_Batch:
 
         metrics_df = pd.DataFrame([metrics])
         metrics_df.to_csv(file_path, index=False)
+

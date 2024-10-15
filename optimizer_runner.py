@@ -1,9 +1,12 @@
 import numpy as np
 import pandas as pd
 import os
+import streamlit as st
 from datetime import datetime
 from optimizers.psosa_optimizer import PSO_SA_Optimizer
-from optimizers.eda_optimizer import EDA_with_Batch  # 假设有 EDA 优化算法
+from optimizers.eda_optimizer import EDA_with_Batch  # EDA 优化算法
+from optimizers.ga_optimizer import GA_with_Batch  # 引入 GA 优化算法
+from optimizers.co_ea_optimizer import CoEA_with_Batch  # 引入 CoEA 优化算法
 from utils import save_and_visualize_results, generate_stacking_distribution_statistics, generate_stacking_heatmaps, show_stacking_distribution_statistics, show_stacking_height_distribution_chart, add_download_button  # 确保正确导入
 
 class OptimizerRunner:
@@ -27,9 +30,14 @@ class OptimizerRunner:
         """
         print("### 运行多种优化算法...")
 
+        # 记录优化开始时间
+        start_time = datetime.now()
+
         optimizer_classes = {
             "PSO_SA_Optimizer": PSO_SA_Optimizer,
             "EDA_with_Batch": EDA_with_Batch,  # 假设已实现 EDA 算法
+            "GA_with_Batch": GA_with_Batch,  # 新增 GA 算法
+            "CoEA_with_Batch": CoEA_with_Batch  # 新增 CoEA 算法
         }
 
         # 逐个算法进行优化
@@ -59,6 +67,14 @@ class OptimizerRunner:
         # 选择最佳的优化结果
         self.select_best_result()
 
+        # 记录优化结束时间并计算总运行时间
+        end_time = datetime.now()
+        total_runtime = end_time - start_time
+        print(f"### 总共运行时间为：{total_runtime}")
+
+        # 在Streamlit界面显示总共运行时间
+        st.write(f"### 总共运行时间为：{total_runtime}")
+
     def select_best_result(self):
         """
         比较所有优化器的结果，选择最佳结果进行后续处理
@@ -87,4 +103,3 @@ class OptimizerRunner:
 
         # 提供下载按钮
         add_download_button(best_result['output_file'], best_result['optimizer_name'])
-

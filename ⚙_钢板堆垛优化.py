@@ -8,6 +8,8 @@ from optimization_objectives import SteelPlateStackingObjectives as Optimization
 # 从 PSOSA 优化器引入 PSO_SA_Optimizer
 from optimizers.psosa_optimizer import PSO_SA_Optimizer
 from optimizers.eda_optimizer import EDA_with_Batch  # 引入 EDA 优化算法
+from optimizers.ga_optimizer import GA_with_Batch  # 引入 GA 优化算法
+from optimizers.co_ea_optimizer import CoEA_with_Batch  # 引入 CoEA 优化算法
 from utils import save_convergence_history, add_download_button, run_optimization, display_icon_with_header
 from optimizer_runner import OptimizerRunner  # 导入优化算法管理器
 
@@ -38,8 +40,7 @@ with col3:
     st.image("data/icon/icon02.jpg", width=20)
 with col4:
     data_choice = st.selectbox("选择数据集", ["使用系统数据集", "上传自定义数据集"])
-with col11:
-    st.image("data/icon/img.png", width=20)
+
 
 df = None
 dataset_name = None
@@ -57,7 +58,7 @@ if data_choice == "上传自定义数据集":
         st.warning("请上传数据集以继续。")
 elif data_choice == "使用系统数据集":
     # 创建两列布局，分别放置选择数据集和选择优化模式
-    col7, col5, col8, col6, col9 = st.columns([0.01,0.2,0.01,0.1, 0.3])
+    col7, col5, col8, col6, col9 = st.columns([0.01, 0.2, 0.01, 0.1, 0.3])
 
     with col7:
         st.image("data/icon/icon02.jpg", width=20)
@@ -73,9 +74,7 @@ elif data_choice == "使用系统数据集":
         st.image("data/icon/icon02.jpg", width=20)
     # 右侧列：选择优化模式
     with col6:
-        available_datasets = [f.replace('.csv', '') for f in os.listdir(system_data_dir) if f.endswith('.csv')]
         optimization_mode = st.selectbox("选择优化模式", ["普通优化", "深度优化"])
-
 
 
 start_work = st.button("Start Work")
@@ -85,18 +84,30 @@ start_work = st.button("Start Work")
 initial_temperature = 1000.0
 cooling_rate = 0.9
 min_temperature = 0.1
-max_iterations_sa = 2
+max_iterations_sa = 1
 num_particles = 30  # 粒子群大小
-max_iter_pso = 2  # PSO最大迭代次数
+max_iter_pso = 1  # PSO最大迭代次数
 w, c1, c2 = 0.5, 1.5, 1.5  # PSO 参数
 lambda_1, lambda_2, lambda_3, lambda_4 = 1.0, 1.0, 1.0, 1.0
 use_adaptive = True
 
 # EDA 优化参数配置
 pop_size = 50  # EDA 种群大小
-max_iter_eda = 2  # EDA最大迭代次数
+max_iter_eda = 1  # EDA最大迭代次数
 mutation_rate = 0.1  # EDA变异率
 crossover_rate = 0.7  # EDA交叉率
+
+# GA 优化参数配置
+ga_population_size = 50
+ga_generations = 1  # GA最大迭代次数
+ga_mutation_rate = 0.1
+ga_crossover_rate = 0.8
+
+# CoEA 优化参数配置
+coea_population_size = 50  # CoEA 种群大小
+coea_generations = 1  # CoEA 最大迭代次数
+coea_mutation_rate = 0.1  # CoEA 变异率
+coea_crossover_rate = 0.8  # CoEA 交叉率
 
 # 优化分析
 if df is not None:
@@ -160,6 +171,37 @@ if df is not None:
             'lambda_2': lambda_2,
             'lambda_3': lambda_3,
             'lambda_4': lambda_4,
+            'dataset_name': dataset_name,
+            'objectives': objectives,
+            'use_adaptive': use_adaptive
+        },
+        "GA_with_Batch": {
+            'population_size': ga_population_size,
+            'mutation_rate': ga_mutation_rate,
+            'crossover_rate': ga_crossover_rate,
+            'generations': ga_generations,
+            'lambda_1': lambda_1,
+            'lambda_2': lambda_2,
+            'lambda_3': lambda_3,
+            'lambda_4': lambda_4,
+            'num_positions': num_positions,
+            'dataset_name': dataset_name,
+            'objectives': objectives,
+            'plates': plates,
+            'delivery_times': delivery_times,
+            'batches': batches,
+            'use_adaptive': use_adaptive
+        },
+        "CoEA_with_Batch": {
+            'population_size': coea_population_size,
+            'mutation_rate': coea_mutation_rate,
+            'crossover_rate': coea_crossover_rate,
+            'generations': coea_generations,
+            'lambda_1': lambda_1,
+            'lambda_2': lambda_2,
+            'lambda_3': lambda_3,
+            'lambda_4': lambda_4,
+            'num_positions': num_positions,
             'dataset_name': dataset_name,
             'objectives': objectives,
             'use_adaptive': use_adaptive
