@@ -62,6 +62,5 @@ def main():
     #ir.plot_confidences(ir.img_rec_instance.average_confidences)
 
 
-
 if __name__ == "__main__":
     main()
